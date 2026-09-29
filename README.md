@@ -134,3 +134,20 @@ PocketLab_all_sensors_demo
 ```
 
 The script steps through the available onboard sensors one at a time, prompts for the appropriate physical interaction, prints decoded values and the first raw BLE packet, plots successful streams, and stores all results in a `results` structure. Acceleration is currently validated; the remaining streams should be treated as experimental until their decoding and engineering units are confirmed.
+
+
+## Unit-validation lab
+
+For a structured Experimental Methods activity focused on accelerometer, gyroscope, and magnetometer unit inference, see:
+
+```text
+SENSOR_UNIT_VALIDATION_GUIDE.md
+```
+
+and run:
+
+```matlab
+PocketLab_unit_validation_lab
+```
+
+The activity deliberately provides physical references and candidate interpretations without simply giving students the answer. Students are expected to justify their conclusions using measured evidence.
