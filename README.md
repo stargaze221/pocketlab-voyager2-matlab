@@ -123,3 +123,14 @@ pocketlabPair
 ## Notes
 
 This is an independent MATLAB interface developed for teaching and experimental use. It is not an official PocketLab product.
+
+
+## Interactive all-sensor demo
+
+After pairing, run:
+
+```matlab
+PocketLab_all_sensors_demo
+```
+
+The script steps through the available onboard sensors one at a time, prompts for the appropriate physical interaction, prints decoded values and the first raw BLE packet, plots successful streams, and stores all results in a `results` structure. Acceleration is currently validated; the remaining streams should be treated as experimental until their decoding and engineering units are confirmed.
