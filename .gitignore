@@ -1,0 +1,7 @@
+# Local PocketLab pairing: do not share between computers
+pocketlab_pairing.mat
+
+# MATLAB autosave / temporary files
+*.asv
+*.autosave
+*.m~
