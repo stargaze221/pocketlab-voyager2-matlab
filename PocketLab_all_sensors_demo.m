@@ -25,7 +25,9 @@ clc
 fprintf('\nPocketLab Voyager 2 - All Sensor Demo\n');
 fprintf('======================================\n');
 fprintf('Acceleration is validated. Other sensors are experimental.\n');
-fprintf('Each sensor will be tested one at a time.\n\n');
+fprintf('Each sensor will be tested one at a time.\n');
+fprintf('For unit-validation structure, also see SENSOR_UNIT_VALIDATION_GUIDE.md\n');
+fprintf('and run PocketLab_unit_validation_lab.m.\n\n');
 
 %% Test configuration
 tests = struct( ...
