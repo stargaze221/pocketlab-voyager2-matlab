@@ -8,6 +8,15 @@ if ~isfolder(driverDir)
     error("ME3310 workspace is incomplete: PocketLab driver folder was not found.");
 end
 
+% Migrate pairing from the earlier standalone-driver layout, if present.
+legacyPairing = fullfile(workspaceRoot,"pocketlab_pairing.mat");
+driverPairing = fullfile(driverDir,"pocketlab_pairing.mat");
+
+if isfile(legacyPairing) && ~isfile(driverPairing)
+    copyfile(legacyPairing,driverPairing);
+    fprintf("Migrated existing PocketLab pairing into the tools folder.\n");
+end
+
 addpath(driverDir);
 
 fprintf("\nME3310 workspace ready.\n");
@@ -21,4 +30,4 @@ fprintf("\nLab 05:\n");
 fprintf("  run(\"labs/Lab05_SensorValidation/Lab05_Main.m\")\n");
 fprintf("  run(\"labs/Lab05_SensorValidation/Lab05_Analysis.m\")\n\n");
 
-clear driverDir
+clear driverDir legacyPairing driverPairing
