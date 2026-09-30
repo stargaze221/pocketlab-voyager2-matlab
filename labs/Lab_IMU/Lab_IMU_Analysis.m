@@ -9,13 +9,26 @@ clc
 labDir = fileparts(mfilename('fullpath'));
 dataDir = fullfile(labDir,"data");
 figureDir = fullfile(labDir,"figures");
-dataFile = fullfile(dataDir,"Lab_IMU_data.mat");
+dataFiles = dir(fullfile(dataDir,"Lab_IMU_data_*.mat"));
 
-if ~isfile(dataFile)
-    error("Lab_IMU_data.mat was not found. Run Lab_IMU_Main.m first.");
+if isempty(dataFiles)
+    error("No timestamped Lab_IMU data file was found. Run Lab_IMU_Main.m first.");
 end
 
+% Analyze the most recently created acquisition file.
+[~,latestIdx] = max([dataFiles.datenum]);
+dataFile = fullfile(dataFiles(latestIdx).folder,dataFiles(latestIdx).name);
+
 load(dataFile,"results");
+
+if isfield(results,"metadata") && isfield(results.metadata,"runTag")
+    runTag = string(results.metadata.runTag);
+else
+    % Fallback for an older file that does not contain runTag metadata.
+    runTag = string(datetime('now','Format','yyyyMMdd_HHmmss'));
+end
+
+fprintf("\nAnalyzing data file:\n  %s\n",dataFile);
 
 %% Part A - Accelerometer magnitude
 tA = results.accelerometer.t;
@@ -32,7 +45,7 @@ ylabel('Sensor output')
 legend('x','y','z','magnitude','Location','best')
 title('Accelerometer Components and Vector Magnitude')
 grid on
-exportgraphics(f1,fullfile(figureDir,"11_accelerometer_evidence.png"),'Resolution',150);
+exportgraphics(f1,fullfile(figureDir,"11_accelerometer_evidence_" + runTag + ".png"),'Resolution',150);
 
 fprintf("\nACCELEROMETER EVIDENCE\n");
 fprintf("Mean vector magnitude: %.6g\n",mean(Amag));
@@ -62,7 +75,7 @@ ylabel('Bias-corrected sensor output')
 legend('x','y','z','Location','best')
 title('Gyroscope - Bias-Corrected Angular Rate')
 grid on
-exportgraphics(f2,fullfile(figureDir,"12_gyroscope_rate_evidence.png"),'Resolution',150);
+exportgraphics(f2,fullfile(figureDir,"12_gyroscope_rate_evidence_" + runTag + ".png"),'Resolution',150);
 
 f3 = figure('Name','Lab_IMU Gyroscope Integrated Evidence');
 plot(tW,thetaNative,'LineWidth',1.4)
@@ -70,7 +83,7 @@ xlabel('Time [s]')
 ylabel('Integrated native value')
 title(sprintf('Integrated Gyroscope Output - Axis %d',gyroAxis))
 grid on
-exportgraphics(f3,fullfile(figureDir,"13_gyroscope_integrated_evidence.png"),'Resolution',150);
+exportgraphics(f3,fullfile(figureDir,"13_gyroscope_integrated_evidence_" + runTag + ".png"),'Resolution',150);
 
 fprintf("\nGYROSCOPE EVIDENCE\n");
 fprintf("Estimated zero-rate bias [x y z]: %.6g  %.6g  %.6g\n",gyroBias);
@@ -95,7 +108,7 @@ ylabel('Sensor output')
 legend('x','y','z','magnitude','Location','best')
 title('Magnetometer Components and Vector Magnitude')
 grid on
-exportgraphics(f4,fullfile(figureDir,"14_magnetometer_evidence.png"),'Resolution',150);
+exportgraphics(f4,fullfile(figureDir,"14_magnetometer_evidence_" + runTag + ".png"),'Resolution',150);
 
 fprintf("\nMAGNETOMETER EVIDENCE\n");
 fprintf("Mean vector magnitude: %.6g\n",mean(Bmag));
@@ -117,10 +130,12 @@ analysis.magnetometer.magnitude = Bmag;
 analysis.magnetometer.meanMagnitude = mean(Bmag);
 analysis.magnetometer.stdMagnitude = std(Bmag);
 
-save(fullfile(dataDir,"Lab_IMU_analysis.mat"),"analysis");
+analysisFile = fullfile(dataDir,"Lab_IMU_analysis_" + runTag + ".mat");
+save(analysisFile,"analysis");
 
 fprintf("\nAnalysis complete.\n");
+fprintf("Saved analysis: %s\n",analysisFile);
 fprintf("Use these plots/numbers as evidence, not as automatic conclusions.\n");
 fprintf("Your report should state what the evidence actually justifies.\n\n");
 
-clear labDir dataDir figureDir dataFile f1 f2 f3 f4
+clear labDir dataDir figureDir dataFile dataFiles latestIdx runTag analysisFile f1 f2 f3 f4
