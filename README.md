@@ -151,3 +151,24 @@ PocketLab_unit_validation_lab
 ```
 
 The activity deliberately provides physical references and candidate interpretations without simply giving students the answer. Students are expected to justify their conclusions using measured evidence.
+
+
+## Battery level
+
+The Voyager 2 exposes the standard BLE Battery Service. After pairing, check the battery level with:
+
+```matlab
+level = pocketlabBattery;
+```
+
+Example output:
+
+```text
+PocketLab battery: 79 %
+```
+
+An explicit BLE address can also be supplied:
+
+```matlab
+level = pocketlabBattery("Address","YOUR_BLE_ADDRESS");
+```
