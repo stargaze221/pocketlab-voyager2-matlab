@@ -70,6 +70,17 @@ run("labs/Lab_IMU/Lab_IMU_Analysis.m")
 
 The scripts save your measured data under `data/` and generated figures under `figures/`.
 
+Each acquisition run automatically receives a timestamp in the form `yyyyMMdd_HHmmss`. The same timestamp is used for all files generated from that run, for example:
+
+```text
+Lab_IMU_data_20260930_143512.mat
+01_accelerometer_raw_20260930_143512.png
+Lab_IMU_analysis_20260930_143512.mat
+11_accelerometer_evidence_20260930_143512.png
+```
+
+`Lab_IMU_Analysis.m` automatically analyzes the most recently created acquisition file.
+
 ## Required experimental evidence
 
 For each sensor, organize your conclusion as:
