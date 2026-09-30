@@ -1,4 +1,4 @@
-%% ME3310 Lab 05 - Sensor Unit Validation: Analysis
+%% ME3310 Lab IMU - Sensor Unit Validation: Analysis
 % Basic calculations are provided so the lab can focus on experimental
 % evidence and engineering judgment rather than MATLAB syntax.
 
@@ -9,10 +9,10 @@ clc
 labDir = fileparts(mfilename('fullpath'));
 dataDir = fullfile(labDir,"data");
 figureDir = fullfile(labDir,"figures");
-dataFile = fullfile(dataDir,"Lab05_data.mat");
+dataFile = fullfile(dataDir,"Lab_IMU_data.mat");
 
 if ~isfile(dataFile)
-    error("Lab05_data.mat was not found. Run Lab05_Main.m first.");
+    error("Lab_IMU_data.mat was not found. Run Lab_IMU_Main.m first.");
 end
 
 load(dataFile,"results");
@@ -23,7 +23,7 @@ A  = results.accelerometer.Y;
 
 Amag = sqrt(sum(A.^2,2));
 
-f1 = figure('Name','Lab05 Accelerometer Evidence');
+f1 = figure('Name','Lab_IMU Accelerometer Evidence');
 plot(tA,A,'LineWidth',1.0)
 hold on
 plot(tA,Amag,'k--','LineWidth',1.4)
@@ -55,7 +55,7 @@ gyroRange = max(Wcorr,[],1) - min(Wcorr,[],1);
 thetaNative = cumtrapz(tW,Wcorr(:,gyroAxis));
 thetaNet = thetaNative(end);
 
-f2 = figure('Name','Lab05 Gyroscope Evidence');
+f2 = figure('Name','Lab_IMU Gyroscope Evidence');
 plot(tW,Wcorr,'LineWidth',1.0)
 xlabel('Time [s]')
 ylabel('Bias-corrected sensor output')
@@ -64,7 +64,7 @@ title('Gyroscope - Bias-Corrected Angular Rate')
 grid on
 exportgraphics(f2,fullfile(figureDir,"12_gyroscope_rate_evidence.png"),'Resolution',150);
 
-f3 = figure('Name','Lab05 Gyroscope Integrated Evidence');
+f3 = figure('Name','Lab_IMU Gyroscope Integrated Evidence');
 plot(tW,thetaNative,'LineWidth',1.4)
 xlabel('Time [s]')
 ylabel('Integrated native value')
@@ -86,7 +86,7 @@ B  = results.magnetometer.Y;
 
 Bmag = sqrt(sum(B.^2,2));
 
-f4 = figure('Name','Lab05 Magnetometer Evidence');
+f4 = figure('Name','Lab_IMU Magnetometer Evidence');
 plot(tB,B,'LineWidth',1.0)
 hold on
 plot(tB,Bmag,'k--','LineWidth',1.4)
@@ -117,7 +117,7 @@ analysis.magnetometer.magnitude = Bmag;
 analysis.magnetometer.meanMagnitude = mean(Bmag);
 analysis.magnetometer.stdMagnitude = std(Bmag);
 
-save(fullfile(dataDir,"Lab05_analysis.mat"),"analysis");
+save(fullfile(dataDir,"Lab_IMU_analysis.mat"),"analysis");
 
 fprintf("\nAnalysis complete.\n");
 fprintf("Use these plots/numbers as evidence, not as automatic conclusions.\n");

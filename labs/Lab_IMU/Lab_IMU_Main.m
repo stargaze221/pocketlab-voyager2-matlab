@@ -1,4 +1,4 @@
-%% ME3310 Lab 05 - Sensor Unit Validation: Data Collection
+%% ME3310 Lab IMU - Sensor Unit Validation: Data Collection
 % Run workspace startup.m before this script.
 %
 % This script performs the acquisition. Your main task is to execute the
@@ -19,7 +19,7 @@ figureDir = fullfile(labDir,"figures");
 if ~isfolder(dataDir), mkdir(dataDir); end
 if ~isfolder(figureDir), mkdir(figureDir); end
 
-fprintf("\nME3310 Lab 05 - Sensor Unit Validation\n");
+fprintf("\nME3310 Lab IMU - Sensor Unit Validation\n");
 fprintf("=======================================\n");
 
 batteryLevel = NaN;
@@ -39,7 +39,7 @@ input("Press Enter when ready...","s");
 
 [tA,A] = pocketlabRead("acceleration",10,20);
 
-fA = figure('Name','Lab05 Raw Accelerometer');
+fA = figure('Name','Lab_IMU Raw Accelerometer');
 plot(tA,A,'LineWidth',1.1)
 xlabel('Time [s]')
 ylabel('Raw sensor output')
@@ -59,7 +59,7 @@ input("Press Enter when ready...","s");
 [tW,W] = pocketlabRead("gyroscope",10,20, ...
     "SuppressExperimentalWarning",true);
 
-fW = figure('Name','Lab05 Raw Gyroscope');
+fW = figure('Name','Lab_IMU Raw Gyroscope');
 plot(tW,W,'LineWidth',1.1)
 xlabel('Time [s]')
 ylabel('Raw sensor output')
@@ -79,7 +79,7 @@ input("Press Enter when ready...","s");
 [tB,B] = pocketlabRead("magnetometer",10,20, ...
     "SuppressExperimentalWarning",true);
 
-fB = figure('Name','Lab05 Raw Magnetometer');
+fB = figure('Name','Lab_IMU Raw Magnetometer');
 plot(tB,B,'LineWidth',1.1)
 xlabel('Time [s]')
 ylabel('Raw sensor output')
@@ -99,13 +99,13 @@ results.gyroscope.Y = W;
 results.magnetometer.t = tB;
 results.magnetometer.Y = B;
 
-dataFile = fullfile(dataDir,"Lab05_data.mat");
+dataFile = fullfile(dataDir,"Lab_IMU_data.mat");
 save(dataFile,"results");
 
 fprintf("\nData collection complete.\n");
 fprintf("Saved data: %s\n",dataFile);
 fprintf("Raw figures: %s\n",figureDir);
 fprintf("\nNext run:\n");
-fprintf('  run("labs/Lab05_SensorValidation/Lab05_Analysis.m")\\n\\n');
+fprintf('  run("labs/Lab_IMU_SensorValidation/Lab_IMU_Analysis.m")\\n\\n');
 
 clear labDir dataDir figureDir fA fW fB tA tW tB A W B dataFile

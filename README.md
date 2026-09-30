@@ -20,10 +20,10 @@ repo/
 │       ├── pocketlabBattery.m
 │       └── ...
 └── labs/
-    └── Lab05_SensorValidation/
+    └── Lab_IMU/
         ├── README.md
-        ├── Lab05_Main.m
-        ├── Lab05_Analysis.m
+        ├── Lab_IMU_Main.m
+        ├── Lab_IMU_Analysis.m
         ├── SENSOR_UNIT_VALIDATION_GUIDE.md
         ├── data/
         ├── figures/
@@ -64,21 +64,21 @@ pull(repo);
 startup
 ```
 
-Your local PocketLab pairing file and Lab 05 data/figure/submission folders are ignored by Git, so course updates do not replace those local files.
+Your local PocketLab pairing file and Lab IMU data/figure/submission folders are ignored by Git, so course updates do not replace those local files.
 
-## Lab 05
+## Lab IMU
 
 Read:
 
 ```text
-labs/Lab05_SensorValidation/README.md
+labs/Lab_IMU/README.md
 ```
 
 Then run:
 
 ```matlab
-run("labs/Lab05_SensorValidation/Lab05_Main.m")
-run("labs/Lab05_SensorValidation/Lab05_Analysis.m")
+run("labs/Lab_IMU/Lab_IMU_Main.m")
+run("labs/Lab_IMU/Lab_IMU_Analysis.m")
 ```
 
-Lab 05 is intentionally structured so that the MATLAB acquisition/analysis mechanics are mostly provided. The student task is to use physical references, measured evidence, and engineering judgment to determine what sensor units are justified by the experiment.
+Lab IMU is intentionally structured so that the MATLAB acquisition/analysis mechanics are mostly provided. The student task is to use physical references, measured evidence, and engineering judgment to determine what sensor units are justified by the experiment.

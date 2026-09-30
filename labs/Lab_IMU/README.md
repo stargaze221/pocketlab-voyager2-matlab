@@ -1,4 +1,4 @@
-# Lab 05 — Sensor Unit Validation from Experimental Evidence
+# Lab IMU — Sensor Unit Validation from Experimental Evidence
 
 ## Engineering question
 
@@ -59,13 +59,13 @@ Earth's magnetic field near the surface is typically on the order of **tens of m
 First collect the three datasets:
 
 ```matlab
-run("labs/Lab05_SensorValidation/Lab05_Main.m")
+run("labs/Lab_IMU/Lab_IMU_Main.m")
 ```
 
 Then run the provided analysis:
 
 ```matlab
-run("labs/Lab05_SensorValidation/Lab05_Analysis.m")
+run("labs/Lab_IMU/Lab_IMU_Analysis.m")
 ```
 
 The scripts save your measured data under `data/` and generated figures under `figures/`.

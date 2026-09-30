@@ -26,8 +26,8 @@ fprintf("\nUseful commands:\n");
 fprintf("  pocketlabPair\n");
 fprintf("  pocketlabBattery\n");
 fprintf('  [t,A] = pocketlabRead("acceleration",10,20);\n');
-fprintf("\nLab 05:\n");
-fprintf('  run("labs/Lab05_SensorValidation/Lab05_Main.m")\n');
-fprintf('  run("labs/Lab05_SensorValidation/Lab05_Analysis.m")\n\n');
+fprintf("\nLab IMU:\n");
+fprintf('  run("labs/Lab_IMU/Lab_IMU_Main.m")\n');
+fprintf('  run("labs/Lab_IMU/Lab_IMU_Analysis.m")\n\n');
 
 clear driverDir legacyPairing driverPairing
