@@ -106,6 +106,6 @@ fprintf("\nData collection complete.\n");
 fprintf("Saved data: %s\n",dataFile);
 fprintf("Raw figures: %s\n",figureDir);
 fprintf("\nNext run:\n");
-fprintf('  run("labs/Lab_IMU_SensorValidation/Lab_IMU_Analysis.m")\\n\\n');
+fprintf('  run("labs/Lab_IMU/Lab_IMU_Analysis.m")\n\n');
 
 clear labDir dataDir figureDir fA fW fB tA tW tB A W B dataFile
