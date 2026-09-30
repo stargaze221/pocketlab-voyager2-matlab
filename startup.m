@@ -25,9 +25,9 @@ fprintf("PocketLab driver added to MATLAB path.\n");
 fprintf("\nUseful commands:\n");
 fprintf("  pocketlabPair\n");
 fprintf("  pocketlabBattery\n");
-fprintf("  [t,A] = pocketlabRead(\"acceleration\",10,20);\n");
+fprintf('  [t,A] = pocketlabRead("acceleration",10,20);\n');
 fprintf("\nLab 05:\n");
-fprintf("  run(\"labs/Lab05_SensorValidation/Lab05_Main.m\")\n");
-fprintf("  run(\"labs/Lab05_SensorValidation/Lab05_Analysis.m\")\n\n");
+fprintf('  run("labs/Lab05_SensorValidation/Lab05_Main.m")\n');
+fprintf('  run("labs/Lab05_SensorValidation/Lab05_Analysis.m")\n\n');
 
 clear driverDir legacyPairing driverPairing
