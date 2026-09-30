@@ -19,6 +19,9 @@ figureDir = fullfile(labDir,"figures");
 if ~isfolder(dataDir), mkdir(dataDir); end
 if ~isfolder(figureDir), mkdir(figureDir); end
 
+% One timestamp identifies all files from this acquisition run.
+runTag = string(datetime('now','Format','yyyyMMdd_HHmmss'));
+
 fprintf("\nME3310 Lab IMU - Sensor Unit Validation\n");
 fprintf("=======================================\n");
 
@@ -46,7 +49,7 @@ ylabel('Raw sensor output')
 legend('x','y','z','Location','best')
 title('Accelerometer - Raw Components')
 grid on
-exportgraphics(fA,fullfile(figureDir,"01_accelerometer_raw.png"),'Resolution',150);
+exportgraphics(fA,fullfile(figureDir,"01_accelerometer_raw_" + runTag + ".png"),'Resolution',150);
 
 %% Part B - Gyroscope
 fprintf("\nPART B - GYROSCOPE\n");
@@ -66,7 +69,7 @@ ylabel('Raw sensor output')
 legend('x','y','z','Location','best')
 title('Gyroscope - Raw Components')
 grid on
-exportgraphics(fW,fullfile(figureDir,"02_gyroscope_raw.png"),'Resolution',150);
+exportgraphics(fW,fullfile(figureDir,"02_gyroscope_raw_" + runTag + ".png"),'Resolution',150);
 
 %% Part C - Magnetometer
 fprintf("\nPART C - MAGNETOMETER\n");
@@ -86,11 +89,12 @@ ylabel('Raw sensor output')
 legend('x','y','z','Location','best')
 title('Magnetometer - Raw Components')
 grid on
-exportgraphics(fB,fullfile(figureDir,"03_magnetometer_raw.png"),'Resolution',150);
+exportgraphics(fB,fullfile(figureDir,"03_magnetometer_raw_" + runTag + ".png"),'Resolution',150);
 
 %% Save measurements
 results = struct;
 results.metadata.created = datetime('now');
+results.metadata.runTag = runTag;
 results.metadata.batteryLevel_percent = batteryLevel;
 results.accelerometer.t = tA;
 results.accelerometer.Y = A;
@@ -99,7 +103,7 @@ results.gyroscope.Y = W;
 results.magnetometer.t = tB;
 results.magnetometer.Y = B;
 
-dataFile = fullfile(dataDir,"Lab_IMU_data.mat");
+dataFile = fullfile(dataDir,"Lab_IMU_data_" + runTag + ".mat");
 save(dataFile,"results");
 
 fprintf("\nData collection complete.\n");
@@ -108,4 +112,4 @@ fprintf("Raw figures: %s\n",figureDir);
 fprintf("\nNext run:\n");
 fprintf('  run("labs/Lab_IMU/Lab_IMU_Analysis.m")\n\n');
 
-clear labDir dataDir figureDir fA fW fB tA tW tB A W B dataFile
+clear labDir dataDir figureDir fA fW fB tA tW tB A W B dataFile runTag
