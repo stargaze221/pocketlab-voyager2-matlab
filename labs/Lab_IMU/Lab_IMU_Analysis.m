@@ -215,30 +215,33 @@ Bv = Bmean(:,hAxes(2));
 
 magAngleRaw = atan2d(Bv,Bu);
 wrap180 = @(x) mod(x+180,360)-180;
-phoneDelta = wrap180(phone-phone(1));
-magDelta = wrap180(magAngleRaw-magAngleRaw(1));
+
+% Compare successive changes rather than absolute compass headings.
+% This removes an arbitrary heading offset and avoids the 0/360 wrap issue.
+phoneStep = [NaN; wrap180(diff(phone))];
+magStep = [NaN; wrap180(diff(magAngleRaw))];
 
 headingTable = table((1:numel(phone)).',phone,Bu,Bv,magAngleRaw, ...
-    phoneDelta,magDelta,abs(phoneDelta),abs(magDelta), ...
+    phoneStep,magStep,abs(phoneStep),abs(magStep), ...
     'VariableNames',{'Position','PhoneHeading_deg','B_horizontal_1', ...
-    'B_horizontal_2','MagAngleRaw_deg','PhoneDelta_deg','MagDelta_deg', ...
-    'AbsPhoneDelta_deg','AbsMagDelta_deg'});
+    'B_horizontal_2','MagAngleRaw_deg','PhoneStep_deg','MagStep_deg', ...
+    'AbsPhoneStep_deg','AbsMagStep_deg'});
 
 disp(headingTable)
 
 fprintf('Because axis order/sign can reverse the angle direction, focus first on\n');
-fprintf('the MAGNITUDE of the relative heading change.\n');
+fprintf('the MAGNITUDE of each successive heading change.\n');
 fprintf('Do approximately 90-deg phone rotations produce approximately 90-deg\n');
 fprintf('changes in the horizontal magnetic-field direction?\n');
 
 fM = figure('Name','Lab IMU - Part D Relative Heading');
-plot(1:numel(phone),abs(phoneDelta),'o-','LineWidth',1.2)
+plot(2:numel(phone),abs(phoneStep(2:end)),'o-','LineWidth',1.2)
 hold on
-plot(1:numel(phone),abs(magDelta),'s-','LineWidth',1.2)
-xlabel('Heading position')
-ylabel('Magnitude of relative heading change [deg]')
+plot(2:numel(phone),abs(magStep(2:end)),'s-','LineWidth',1.2)
+xlabel('Rotation step')
+ylabel('Magnitude of heading change [deg]')
 legend('Smartphone reference','Magnetometer','Location','best')
-title('Part D - Relative Heading Comparison')
+title('Part D - Successive Heading-Change Comparison')
 grid on
 exportgraphics(fM,fullfile(figureDir,"15_magnetometer_heading_" + runTag + ".png"), ...
     'Resolution',150);
