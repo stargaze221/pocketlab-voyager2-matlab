@@ -1,99 +1,106 @@
-# Lab IMU — Sensor Unit Validation from Experimental Evidence
+# Lab IMU — Validating Sensor Measurements Using Independent References
 
 ## Engineering question
 
-**Can you determine what a sensor is actually reporting, including its engineering unit, using experimental evidence rather than simply accepting a label?**
+**How can we determine whether a sensor output is physically meaningful and trustworthy?**
 
-This lab focuses on three PocketLab Voyager 2 sensors:
+The main objective is not MATLAB programming and not simply learning how to operate an IMU. The lab uses the same experimental reasoning pattern in four different sensor tests:
 
-1. Accelerometer
-2. Gyroscope
-3. Magnetometer
+**Independent Reference → Expected Behavior / Prediction → Sensor Measurement → Quantitative Comparison → Engineering Judgment**
 
-The MATLAB acquisition and basic analysis structure are provided. Your responsibility is to design/execute the physical test carefully, interpret the evidence, and defend the unit that the evidence supports.
+MATLAB handles the Bluetooth acquisition and most of the calculations. Students establish the physical reference, perform the experiment, inspect the evidence, and decide what conclusions the evidence justifies.
 
-## Before the lab
+## Part A — Accelerometer orientation using gravity
 
-From the workspace root:
+Temporarily label the six PocketLab faces as three opposite pairs: A/B, C/D, and E/F. Place each face downward in turn while the sensor is stationary.
 
-```matlab
-startup
-pocketlabPair
-pocketlabBattery
-```
+Use gravity as the independent reference to determine:
 
-Then read `SENSOR_UNIT_VALIDATION_GUIDE.md`.
+- which physical directions correspond to sensor x, y, and z axes,
+- how the sign changes between opposite orientations,
+- whether the acceleration-vector magnitude remains approximately constant.
 
-## Physical references you may use
+## Part B — Dynamic accelerometer validation
 
-### Accelerometer
+Keep Face A down so the PocketLab remains approximately level. Create an approximately straight, horizontal, periodic motion.
 
-Near Earth's surface,
+Measure the reference independently using:
 
-```text
-g ≈ 9.81 m/s^2
-```
+- peak-to-peak travel L,
+- amplitude A = L/2,
+- elapsed time for several complete cycles,
+- average period T.
 
-A measured acceleration could therefore plausibly be expressed in units such as `g` or `m/s^2`.
+For an approximately sinusoidal motion, the predicted peak acceleration is
 
-### Gyroscope
+    a_max,ref = (2*pi/T)^2 A
 
-Angular rate is commonly expressed in `rad/s` or `deg/s`.
+This is the **one required student MATLAB coding checkpoint**. In `Lab_IMU_Analysis.m`, replace the marked `NaN` with the MATLAB expression for this analytical prediction.
 
-Useful angular references:
+Everything else in the analysis is provided so that the focus remains on experimental validation rather than syntax.
 
-```text
-90 deg  = pi/2 rad
-180 deg = pi rad
-360 deg = 2*pi rad
-```
+## Part C — Gyroscope axis and known-angle validation
 
-Angular displacement is obtained by integrating angular rate over time.
+First rotate the PocketLab about each of the three physical axes defined by the face pairs from Part A. Determine which gyroscope channel responds most strongly to each physical rotation.
 
-### Magnetometer
+Then perform one known-angle rotation, such as 90 or 180 degrees. Establish the angle independently and measure the rotation time.
 
-Earth's magnetic field near the surface is typically on the order of **tens of microtesla**. Indoor measurements may be distorted by steel, magnets, electrical current, computers, furniture, and building structure.
+The analysis script automatically:
+
+- estimates zero-rate bias from the initial stationary interval,
+- identifies the dominant gyroscope channel,
+- integrates angular rate over time,
+- reports the integrated native value,
+- reports the reference angle in both degrees and radians.
+
+The script intentionally does **not** state the final unit interpretation. Students use the comparison as evidence.
+
+## Part D — Magnetometer comparison with a smartphone compass
+
+Keep Face A down so the PocketLab remains approximately level. Use a smartphone compass as the independent reference instrument.
+
+At each heading:
+
+1. read the smartphone heading,
+2. move the phone away from the PocketLab,
+3. record the stationary magnetometer output.
+
+The analysis uses the two horizontal sensor axes inferred from Part A and compares **successive heading changes** rather than absolute compass heading. This reduces sensitivity to arbitrary heading offsets and 0/360-degree wrapping.
+
+Because axis order and sign can reverse the direction convention, the introductory comparison emphasizes the **magnitude** of each heading change.
 
 ## Workflow
 
-First collect the three datasets:
+From the repository root:
 
-```matlab
-run("labs/Lab_IMU/Lab_IMU_Main.m")
-```
+    startup
+    pocketlabBattery
 
-Then run the provided analysis:
+If pairing is needed:
 
-```matlab
-run("labs/Lab_IMU/Lab_IMU_Analysis.m")
-```
+    pocketlabPair
 
-The scripts save your measured data under `data/` and generated figures under `figures/`.
+Collect the four experiments:
 
-Each acquisition run automatically receives a timestamp in the form `yyyyMMdd_HHmmss`. The same timestamp is used for all files generated from that run, for example:
+    run("labs/Lab_IMU/Lab_IMU_Main.m")
 
-```text
-Lab_IMU_data_20260930_143512.mat
-01_accelerometer_raw_20260930_143512.png
-Lab_IMU_analysis_20260930_143512.mat
-11_accelerometer_evidence_20260930_143512.png
-```
+Then open `labs/Lab_IMU/Lab_IMU_Analysis.m`, find the section labeled `STUDENT MATLAB CHECKPOINT`, replace the single `NaN` assignment, and run:
 
-`Lab_IMU_Analysis.m` automatically analyzes the most recently created acquisition file.
+    run("labs/Lab_IMU/Lab_IMU_Analysis.m")
 
-## Required experimental evidence
+## Output files
 
-For each sensor, organize your conclusion as:
+Each experiment run receives a timestamp in the form `yyyyMMdd_HHmmss`. Data and figures from the same run share the same timestamp and are not overwritten by later trials.
 
-**Claim → Test → Evidence → Analysis / Inference → Engineering Judgment**
+## What students should conclude
 
-For each sensor, answer:
+For every part, the final response should identify:
 
-- What unit or scale do you claim the sensor reports?
-- What known physical reference did you use?
-- What experimental observation supports the claim?
-- What quantitative comparison supports the claim?
-- What are the important error/uncertainty sources?
-- How strongly does the evidence justify the conclusion?
+- **Reference:** What independent reference was used?
+- **Expected result:** What behavior or value did the reference predict?
+- **Measurement:** What did the sensor actually report?
+- **Comparison:** How closely did the measurement agree with the reference?
+- **Limitations:** What experimental error, model error, or environmental effect matters?
+- **Engineering judgment:** What does the evidence actually justify claiming?
 
-Looking at source code, documentation, or an online answer is **not experimental evidence**. Such information may be used later as an external cross-check, but your lab conclusion must be supported by your own measured data.
+The scripts provide measurements and quantitative comparisons, but deliberately stop before the final engineering conclusion.
