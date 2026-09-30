@@ -1,7 +1,15 @@
-# Local PocketLab pairing: do not share between computers
-pocketlab_pairing.mat
+# PocketLab pairing is local to each computer/sensor
+**/pocketlab_pairing.mat
 
 # MATLAB autosave / temporary files
 *.asv
 *.autosave
 *.m~
+
+# Lab-generated local work
+labs/**/data/*
+!labs/**/data/.gitkeep
+labs/**/figures/*
+!labs/**/figures/.gitkeep
+labs/**/submission/*
+!labs/**/submission/.gitkeep
