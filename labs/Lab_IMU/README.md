@@ -18,7 +18,8 @@ Use gravity as the independent reference to determine:
 
 - which physical directions correspond to sensor x, y, and z axes,
 - how the sign changes between opposite orientations,
-- whether the acceleration-vector magnitude remains approximately constant.
+- whether the acceleration-vector magnitude remains approximately constant,
+- whether the native acceleration scale is physically consistent with approximately 1 g at rest.
 
 ## Part B — Dynamic accelerometer validation
 
@@ -39,21 +40,23 @@ This is the **one required student MATLAB coding checkpoint**. In `Lab_IMU_Analy
 
 Everything else in the analysis is provided so that the focus remains on experimental validation rather than syntax.
 
+The lab configures the PocketLab at a nominal 20 Hz sample rate. A motion near 1 Hz is a useful target because it provides roughly 20 samples per cycle and is comfortably below the 10 Hz Nyquist frequency.
+
 ## Part C — Gyroscope axis and known-angle validation
 
 First rotate the PocketLab about each of the three physical axes defined by the face pairs from Part A. Determine which gyroscope channel responds most strongly to each physical rotation.
 
-Then perform one known-angle rotation, such as 90 or 180 degrees. Establish the angle independently and measure the rotation time.
+Then perform one known-angle rotation, such as 90 or 180 degrees. Establish the angle independently. Before the recorded trial, rehearse the same known-angle motion while a partner measures the rotation time, then reproduce approximately the same motion during the 10-second recording.
 
 The analysis script automatically:
 
 - estimates zero-rate bias from the initial stationary interval,
 - identifies the dominant gyroscope channel,
 - integrates angular rate over time,
-- reports the integrated native value,
+- reports the signed integrated native value and its magnitude,
 - reports the reference angle in both degrees and radians.
 
-The script intentionally does **not** state the final unit interpretation. Students use the comparison as evidence.
+For unit inference, students compare the **magnitude** of the integrated native value with the known angle in degrees and radians. The sign is interpreted separately as evidence about rotation direction. The script intentionally does **not** state the final unit interpretation.
 
 ## Part D — Magnetometer comparison with a smartphone compass
 
@@ -68,6 +71,8 @@ At each heading:
 The analysis uses the two horizontal sensor axes inferred from Part A and compares **successive heading changes** rather than absolute compass heading. This reduces sensitivity to arbitrary heading offsets and 0/360-degree wrapping.
 
 Because axis order and sign can reverse the direction convention, the introductory comparison emphasizes the **magnitude** of each heading change.
+
+The analysis also computes the three-axis magnetic-field magnitude in native decoded units as a secondary scale-plausibility check. Earth's surface field is typically on the order of tens of microtesla, but the current MATLAB driver does not yet claim a validated engineering unit for the magnetometer, so this is supporting evidence rather than an exact calibration.
 
 ## Workflow
 
