@@ -159,6 +159,7 @@ gyroRange = max(Wcorr,[],1)-min(Wcorr,[],1);
 
 thetaNative = cumtrapz(tG,Wcorr(:,dominantGyroAxis));
 thetaNetNative = thetaNative(end);
+thetaNetMagnitude = abs(thetaNetNative);
 
 referenceAngle_deg = G.ReferenceAngle_deg;
 referenceAngle_rad = deg2rad(referenceAngle_deg);
@@ -175,9 +176,11 @@ fprintf('\nGyroscope evidence:\n');
 fprintf('  Estimated zero-rate bias [gx gy gz] = [% .5f  % .5f  % .5f]\n',gyroBias);
 fprintf('  Dominant sensor axis during validation = %d\n',dominantGyroAxis);
 fprintf('  Integrated native value = %.6f\n',thetaNetNative);
-fprintf('\nCompare that integrated value with both %.3f deg and %.6f rad.\n', ...
-    referenceAngle_deg,referenceAngle_rad);
-fprintf('Use the comparison to infer the angular-rate scale/unit.\n');
+fprintf('  Integrated magnitude    = %.6f\n',thetaNetMagnitude);
+fprintf('\nFor unit inference, compare the MAGNITUDE %.6f with both %.3f deg and %.6f rad.\n', ...
+    thetaNetMagnitude,referenceAngle_deg,referenceAngle_rad);
+fprintf('Use the signed value separately to interpret the rotation direction/sign convention.\n');
+fprintf('Use the magnitude comparison to infer the angular-rate scale/unit.\n');
 
 fG1 = figure('Name','Lab IMU - Part C Gyroscope Rate');
 plot(tG,Wcorr,'LineWidth',1.1)
@@ -212,6 +215,7 @@ fprintf('From Part A, the two approximately horizontal sensor axes are %d and %d
 
 Bu = Bmean(:,hAxes(1));
 Bv = Bmean(:,hAxes(2));
+Bmag = vecnorm(Bmean,2,2);
 
 magAngleRaw = atan2d(Bv,Bu);
 wrap180 = @(x) mod(x+180,360)-180;
@@ -221,10 +225,10 @@ wrap180 = @(x) mod(x+180,360)-180;
 phoneStep = [NaN; wrap180(diff(phone))];
 magStep = [NaN; wrap180(diff(magAngleRaw))];
 
-headingTable = table((1:numel(phone)).',phone,Bu,Bv,magAngleRaw, ...
+headingTable = table((1:numel(phone)).',phone,Bu,Bv,Bmag,magAngleRaw, ...
     phoneStep,magStep,abs(phoneStep),abs(magStep), ...
     'VariableNames',{'Position','PhoneHeading_deg','B_horizontal_1', ...
-    'B_horizontal_2','MagAngleRaw_deg','PhoneStep_deg','MagStep_deg', ...
+    'B_horizontal_2','Bmag_native','MagAngleRaw_deg','PhoneStep_deg','MagStep_deg', ...
     'AbsPhoneStep_deg','AbsMagStep_deg'});
 
 disp(headingTable)
@@ -233,6 +237,11 @@ fprintf('Because axis order/sign can reverse the angle direction, focus first on
 fprintf('the MAGNITUDE of each successive heading change.\n');
 fprintf('Do approximately 90-deg phone rotations produce approximately 90-deg\n');
 fprintf('changes in the horizontal magnetic-field direction?\n');
+fprintf('\nMagnetic-field magnitude sanity check (native decoded units):\n');
+fprintf('  Mean |B| = %.5f\n',mean(Bmag));
+fprintf('  Range    = %.5f to %.5f\n',min(Bmag),max(Bmag));
+fprintf('Compare the order of magnitude cautiously with Earth-field references;\n');
+fprintf('the magnetometer engineering units are not yet physically validated in this driver.\n');
 
 fM = figure('Name','Lab IMU - Part D Relative Heading');
 plot(2:numel(phone),abs(phoneStep(2:end)),'o-','LineWidth',1.2)
@@ -262,9 +271,11 @@ analysis.gyroscope.axisTable = gyroAxisTable;
 analysis.gyroscope.bias = gyroBias;
 analysis.gyroscope.dominantAxis = dominantGyroAxis;
 analysis.gyroscope.integratedNative = thetaNetNative;
+analysis.gyroscope.integratedMagnitudeNative = thetaNetMagnitude;
 analysis.gyroscope.referenceAngle_deg = referenceAngle_deg;
 analysis.gyroscope.referenceAngle_rad = referenceAngle_rad;
 analysis.magnetometer.headingTable = headingTable;
+analysis.magnetometer.fieldMagnitudeNative = Bmag;
 
 analysisFile = fullfile(dataDir,"Lab_IMU_analysis_" + runTag + ".mat");
 save(analysisFile,"analysis");
