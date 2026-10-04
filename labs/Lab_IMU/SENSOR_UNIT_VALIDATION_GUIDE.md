@@ -1,218 +1,113 @@
 # Sensor Unit Validation Guide
 
-This guide is designed for an Experimental Methods laboratory activity using the PocketLab Voyager 2 MATLAB driver.
+This guide supports the ME3310 PocketLab Voyager 2 IMU laboratory and is aligned with the current Lab_IMU_Main.m and Lab_IMU_Analysis.m workflow.
 
-The goal is **not** to look up the answer first. The goal is to use a known physical reference, collect evidence, and determine which unit interpretation is consistent with the measurements.
+The goal is **not** to look up an answer first. The goal is to use an independent physical reference, collect evidence, and decide which interpretation is supported.
 
 ## Experimental reasoning pattern
 
-For each sensor, organize your work as:
+Use the same structure throughout the lab:
 
-**Engineering Question → Measurement → Evidence → Analysis / Inference → Engineering Judgment**
+**Independent Reference → Expected Behavior / Prediction → Sensor Measurement → Comparison → Engineering Judgment**
 
-For each sensor, document:
-
-1. **Hypothesis** — What unit(s) might the sensor be reporting?
-2. **Reference** — What known physical quantity can you compare against?
-3. **Experiment** — What motion/orientation/test will you perform?
-4. **Evidence** — What plots, calculations, and repeated measurements support your interpretation?
-5. **Judgment** — Which unit is most consistent with the evidence, and how confident are you?
-
-Do not rely only on one instantaneous value. Use multiple orientations, motions, or repeated trials.
+The acquisition scripts configure the PocketLab at a nominal **20 Hz** sample rate. The data are transferred to MATLAB over Bluetooth Low Energy (BLE). Therefore, 20 Hz is the configured measurement rate, not the raw Bluetooth radio data rate.
 
 ---
 
-## 1. Accelerometer
+## Part A — Accelerometer orientation and scale using gravity
 
-Acquire data with:
+Acquire stationary measurements in six orientations by placing each of the three opposite face pairs downward in turn.
 
-```matlab
-[t,A] = pocketlabRead("acceleration",10,20);
-```
+Gravity is the independent reference.
 
-where the three columns correspond to the three measured acceleration components.
+Use the data to determine:
 
-### Known physical reference
+- which physical directions correspond to sensor x, y, and z,
+- how the sign changes between opposite faces,
+- whether the acceleration-vector magnitude remains approximately constant,
+- whether the native acceleration scale is physically consistent with approximately **1 g** at rest.
 
-Near Earth's surface,
+Near Earth's surface:
 
-```text
-g ≈ 9.81 m/s^2
-```
+    1 g ≈ 9.81 m/s^2
 
-A sensor may report acceleration in units such as:
-
-```text
-g
-m/s^2
-```
-
-### Suggested experiment
-
-Place the PocketLab at rest in several different orientations.
-
-For each orientation, inspect the three acceleration components and calculate the vector magnitude:
-
-```matlab
-amag = sqrt(sum(A.^2,2));
-mean_amag = mean(amag)
-```
-
-Ask:
-
-- When one axis points approximately upward or downward, what value does that axis approach?
-- Does the acceleration magnitude at rest approach approximately 1 or approximately 9.81?
-- Does rotating the sensor change the individual components while leaving the magnitude approximately constant?
-
-### Evidence to report
-
-Include at least:
-
-- one time-history plot,
-- several stationary orientations,
-- the measured acceleration magnitude,
-- your unit interpretation,
-- one or more reasons the result is not exact.
+The current MATLAB driver has physically validated the PocketLab accelerometer native output as **g**.
 
 ---
 
-## 2. Gyroscope
+## Part B — Dynamic accelerometer validation
 
-Acquire data with:
+Keep Face A down so the PocketLab remains approximately level. Create an approximately straight, horizontal, periodic motion.
 
-```matlab
-[t,W] = pocketlabRead("gyroscope",10,20);
-```
+Measure the reference independently using peak-to-peak travel L, amplitude A = L/2, elapsed time for several complete cycles, and average period T.
 
-The three columns correspond to angular-rate measurements about three sensor axes.
+For approximately sinusoidal motion:
 
-### Candidate unit interpretations
+    a_max,ref = (2*pi/T)^2 A
 
-Angular rate is commonly expressed as:
+This is the **one required student MATLAB coding checkpoint**. In Lab_IMU_Analysis.m, replace the marked NaN with the corresponding MATLAB expression.
 
-```text
-rad/s
-deg/s
-```
-
-Do not assume which one is used. Determine it from experiment.
-
-### Known physical reference
-
-A controlled rotation provides a known change in angle.
-
-For example:
-
-```text
-90 degrees = pi/2 radians
-180 degrees = pi radians
-360 degrees = 2*pi radians
-```
-
-Angular displacement is related to angular rate by
-
-```text
-angle change = integral of angular rate with respect to time
-```
-
-In MATLAB, for one measured axis:
-
-```matlab
-theta = trapz(t,W(:,axisNumber));
-```
-
-or to inspect the accumulated angle over time:
-
-```matlab
-theta_history = cumtrapz(t,W(:,axisNumber));
-```
-
-### Suggested experiment
-
-1. Keep the sensor still briefly and observe the zero-rate bias.
-2. Rotate the sensor approximately 90 degrees about one axis.
-3. Repeat the motion several times.
-4. Integrate the dominant angular-rate component.
-
-Ask:
-
-- Is the integrated value closer to 90 or to pi/2?
-- Does reversing the direction of rotation change the sign?
-- How much error is caused by imperfect hand motion, bias, and sampling?
-
-### Evidence to report
-
-Include at least:
-
-- the angular-rate time history,
-- the axis used for the test,
-- the known approximate rotation angle,
-- the integrated sensor output,
-- the inferred unit,
-- a comparison across repeated trials.
+A motion near **1 Hz** is a useful target because a 20 Hz acquisition gives approximately 20 samples per cycle. The purpose is not to move as fast as possible, but to produce repeatable motion that the acquisition can resolve clearly.
 
 ---
 
-## 3. Magnetometer
+## Part C — Gyroscope axis, sign, bias, and unit inference
 
-Acquire data with:
+First rotate the PocketLab about each of the three physical axes identified in Part A. Determine which gyroscope channel responds most strongly and how the sign changes when rotation direction reverses.
 
-```matlab
-[t,B] = pocketlabRead("magnetometer",10,20);
-```
+Then perform one quantitative known-angle rotation:
 
-The three columns correspond to three magnetic-field components.
+1. Choose a known angle such as 90 or 180 degrees.
+2. Rehearse that motion while a partner measures the rotation time.
+3. Enter the known angle and practice rotation time when prompted.
+4. During the recorded trial, keep the sensor still for about 2 seconds, then reproduce approximately the same known-angle rotation and hold the final orientation.
 
-### Physical reference
+The initial stationary interval is used to estimate zero-rate bias.
 
-Earth's magnetic field near the surface is typically on the order of **tens of microtesla**.
+For unit inference, compare the **magnitude** of the integrated native value with both forms of the same known angle:
 
-A magnetic-field sensor may report values in units such as microtesla or another magnetic-field scale. Use the data to determine what interpretation is physically plausible.
+    90 degrees = pi/2 radians
+    180 degrees = pi radians
+    360 degrees = 2*pi radians
 
-### Suggested experiment
+Use the **signed** integrated value separately to interpret the rotation direction/sign convention.
 
-Keep the PocketLab in approximately the same location and rotate it slowly through several orientations.
+Common angular-rate units are deg/s and rad/s. The current MATLAB driver intentionally leaves the gyroscope in native decoded units because its engineering-unit interpretation has not yet been physically validated.
 
-Calculate the measured field magnitude:
+---
 
-```matlab
-Bmag = sqrt(sum(B.^2,2));
-mean_Bmag = mean(Bmag)
-```
+## Part D — Magnetometer validation with a smartphone compass
 
-Ask:
+Keep Face A down so the PocketLab remains approximately level. Use a smartphone compass as the independent reference instrument.
 
-- Do the individual components change as the sensor rotates?
-- Does the vector magnitude remain approximately constant?
-- Is the order of magnitude physically reasonable for Earth's magnetic field?
-- What happens when the sensor is brought near steel, a magnet, a laptop, or other electronics?
+At four headings distributed around approximately 360 degrees:
 
-### Important limitation
+1. read and enter the smartphone heading,
+2. move the phone away from the PocketLab,
+3. keep the PocketLab flat and stationary,
+4. record the magnetometer output.
 
-Indoor magnetic measurements can be strongly distorted by nearby ferromagnetic materials, permanent magnets, electric currents, computers, furniture, and building structure.
+The analysis uses the two horizontal sensor axes inferred from Part A and compares **successive heading changes** rather than absolute north. Because axis order and sign can reverse the direction convention, focus first on the **magnitude** of the heading change.
 
-A poor match to an ideal Earth-field value does **not** automatically mean the sensor is wrong. It may indicate that the local magnetic environment is not clean.
+The analysis also calculates the total three-axis field magnitude:
 
-### Evidence to report
+    Bmag = sqrt(Bx.^2 + By.^2 + Bz.^2);
 
-Include at least:
+Earth's magnetic field near the surface is typically on the order of **25–65 microtesla** (about **0.25–0.65 gauss**). Use this only as a scale-plausibility check. The current MATLAB driver does not yet claim a physically validated engineering unit for the PocketLab magnetometer.
 
-- the three magnetic-field components,
-- the field magnitude,
-- measurements from several orientations,
-- the inferred unit or scale,
-- discussion of environmental interference.
+Indoor magnetic measurements can also be distorted by steel, magnets, electrical equipment, computers, the smartphone itself, and building structure. A poor match to an ideal Earth-field value does not automatically mean that the sensor is wrong.
 
 ---
 
 ## Suggested final conclusion format
 
-For each sensor, write a short conclusion using this structure:
+For each part, organize the conclusion as:
 
-> **Claim:** We conclude that the sensor most likely reports ________.  
-> **Evidence:** Our strongest evidence is ________.  
-> **Comparison:** The measured/reference comparison was ________.  
-> **Limitations:** The largest source(s) of uncertainty or error were ________.  
-> **Confidence:** We are [highly / moderately / weakly] confident because ________.
+- **Reference:** What independent reference was used?
+- **Expected result:** What behavior or value did the reference predict?
+- **Measurement:** What did the sensor actually report?
+- **Comparison:** How closely did the measurement agree with the reference?
+- **Limitations:** What experimental, model, acquisition, or environmental limitation matters?
+- **Engineering judgment:** What does the evidence actually justify claiming?
 
-The objective is not simply to state a unit. The objective is to show what experimental evidence justifies that conclusion.
+The scripts provide measurements and quantitative comparisons, but deliberately stop before the final engineering conclusion.
