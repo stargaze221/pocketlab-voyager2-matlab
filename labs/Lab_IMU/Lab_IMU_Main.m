@@ -172,7 +172,8 @@ for k = 1:3
 end
 
 fprintf('\nNow perform one quantitative known-angle rotation.\n');
-fprintf('A partner can help establish the start/end angle and timing.\n');
+fprintf('First rehearse the known-angle motion while a partner measures the rotation time.\n');
+fprintf('Then reproduce approximately the same motion during the recorded trial.\n');
 
 validationPhysicalAxis = input('Choose physical rotation axis [1=A-B, 2=C-D, 3=E-F]: ');
 if ~ismember(validationPhysicalAxis,1:3)
@@ -180,7 +181,7 @@ if ~ismember(validationPhysicalAxis,1:3)
 end
 
 referenceAngle_deg = input('Known rotation angle magnitude [deg] (e.g., 90 or 180): ');
-referenceRotationTime_s = input('Independent measured rotation time [s]: ');
+referenceRotationTime_s = input('Independent practice rotation time for the same known angle [s]: ');
 
 validateattributes(referenceAngle_deg,{'numeric'},{'scalar','real','positive','finite'});
 validateattributes(referenceRotationTime_s,{'numeric'},{'scalar','real','positive','finite'});
