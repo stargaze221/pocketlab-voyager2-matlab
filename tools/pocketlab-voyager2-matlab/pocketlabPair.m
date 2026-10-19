@@ -143,6 +143,9 @@ end
 
 fprintf('\nExamples:\n');
 fprintf('  [t,A] = pocketlabRead("acceleration",10,20);\n');
-fprintf('  [t,W] = pocketlabRead("gyroscope",10,20);\n\n');
+fprintf('  [t,W] = pocketlabRead("gyroscope",10,20);\n');
+fprintf('  [t,data,info] = pocketlabReadMulti(["acceleration","gyroscope"],10,20);\n');
+fprintf('  A = data.acceleration; W = data.gyroscope;\n');
+fprintf('  Note: multi-sensor timestamps are nominal; precise synchronization is not verified.\n\n');
 
 end
