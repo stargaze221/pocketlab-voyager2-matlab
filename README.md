@@ -15,7 +15,7 @@ repo/
 ├── startup.m
 ├── tools/
 │   └── pocketlab-voyager2-matlab/
-│       ├── pocketlabRead.m
+│       ├── pocketlabReadMulti.m\n│       ├── pocketlabDecodeMultiPacket.m\n│       ├── pocketlabRead.m
 │       ├── pocketlabPair.m
 │       ├── pocketlabBattery.m
 │       └── ...
@@ -53,6 +53,27 @@ Check the battery if desired:
 ```matlab
 pocketlabBattery
 ```
+
+## PocketLab acquisition
+
+For one sensor, use the established single-sensor interface:
+
+```matlab
+[t,A] = pocketlabRead("acceleration",10,20);
+[t,W] = pocketlabRead("gyroscope",10,20);
+```
+
+For acceleration and gyroscope acquired together in one BLE stream:
+
+```matlab
+[t,data,info] = pocketlabReadMulti(["acceleration","gyroscope"],10,20);
+A = data.acceleration;   % N-by-3, acceleration (g)
+W = data.gyroscope;      % N-by-3, angular velocity (deg/s)
+```
+
+The combined-stream format was tested on a physical Voyager 2 at 20 Hz. Observed 102-byte packets contain a 6-byte header followed by four six-channel float32 samples. Stationary tests produced acceleration near 1 g and gyroscope values consistent with independent single-sensor acquisition. Motion tests showed corresponding acceleration and gyroscope changes.
+
+**Limitations:** This remains an experimental acquisition interface. The returned `t` vector uses nominal intervals `(0:N-1)/Fs`, not device-verified per-sample timestamps. Precise cross-sensor synchronization, packet loss behavior, other sensor combinations, and other sampling rates have not been established. Retain `info.RawPackets` for diagnostics and do not infer sub-sample synchronization precision from visual plot alignment. The existing `pocketlabRead` remains available.
 
 ## Returning to the workspace
 
