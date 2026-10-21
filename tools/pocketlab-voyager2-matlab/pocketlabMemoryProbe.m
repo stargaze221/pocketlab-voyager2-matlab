@@ -66,6 +66,7 @@ info.UserSpacePacket=uint8([]);
 info.MemoryRateResponse=uint8([]);
 info.MemoryChunkResponse=uint8([]);
 info.FrequencyInstruction=NaN;
+info.MemoryRateValid=false;
 info.ChunkLength=NaN;
 info.NominalChunkInterval_s=NaN;
 info.NominalSampleInterval_s=NaN;
@@ -114,12 +115,21 @@ if numel(rateResponse)>=6
     highWord=double(rateResponse(3))+256*double(rateResponse(4));
     lowWord=double(rateResponse(5))+256*double(rateResponse(6));
     instruction=highWord*65536+lowWord;
-    info.FrequencyInstruction=instruction;
-    if highWord>0
+    % Reject invalid/uninitialized instructions (notably FF FF FF FF).
+    % These values are taken from the Voyager 2 web-app rate table.
+    supportedInstructions=[3932160001,1966080001,983040001, ...
+        655360001,327680001,65536001,13107201,13107202, ...
+        9830403,7864323,7864326,4718610];
+    if any(instruction==supportedInstructions)
+        info.FrequencyInstruction=instruction;
+        info.MemoryRateValid=true;
         info.NominalChunkInterval_s=highWord/1000;
-        if lowWord>0
-            info.NominalSampleInterval_s=highWord/(1000*lowWord);
-        end
+        info.NominalSampleInterval_s=highWord/(1000*lowWord);
+    else
+        warning('PocketLab:InvalidMemoryRate', ...
+            ['Memory rate response is not a recognized Voyager 2 rate ' ...
+             '(raw: %s). Sample timing remains unknown; raw flash data ' ...
+             'can still be downloaded.'],localHex(rateResponse));
     end
 else
     warning('PocketLab:MemoryRateResponse','Memory rate response shorter than 6 bytes.');
@@ -135,8 +145,13 @@ else
     warning('PocketLab:MemoryChunkResponse','Memory chunk response shorter than 3 bytes.');
 end
 if ~quiet
-    fprintf('Memory instruction: %.0f | chunk bytes: %g | nominal dt: %g s\n', ...
-        info.FrequencyInstruction,info.ChunkLength,info.NominalSampleInterval_s);
+    if info.MemoryRateValid
+        fprintf('Memory instruction: %.0f | chunk bytes: %g | nominal dt: %g s\n', ...
+            info.FrequencyInstruction,info.ChunkLength,info.NominalSampleInterval_s);
+    else
+        fprintf('Memory rate: UNKNOWN | chunk bytes: %g (raw rate: %s)\n', ...
+            info.ChunkLength,localHex(rateResponse));
+    end
 end
 
 subscribe(rx);
