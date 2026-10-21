@@ -217,7 +217,14 @@ while toc(startClock)<recordTime
             if ~isempty(onUpdate) && toc(lastUpdateClock)>=updateInterval_s
                 count=size(data.(char(sensorNames(1))),1);
                 tPreview=(0:count-1)'/Fs;
-                onUpdate(tPreview,data);
+                try
+                    onUpdate(tPreview,data);
+                catch displayError
+                    warning('PocketLab:LiveDisplayError', ...
+                        'Live display callback failed: %s. Acquisition continues.', ...
+                        displayError.message);
+                    onUpdate=[];  % Never discard sensor capture due to UI.
+                end
                 lastUpdateClock=tic;
             end
         else
@@ -237,7 +244,13 @@ elapsed_s=toc(startClock);
 % Always publish the final decoded data once (including early stop).
 if ~isempty(onUpdate) && decodePacked
     count=size(data.(char(sensorNames(1))),1);
-    onUpdate((0:count-1)'/Fs,data);
+    try
+        onUpdate((0:count-1)'/Fs,data);
+    catch displayError
+        warning('PocketLab:LiveDisplayError', ...
+            'Final live display failed: %s. Capture can still be saved.', ...
+            displayError.message);
+    end
 end
 if ~quiet
     fprintf('\\rRecording: [%s] 100%% | %g / %g s\\n',repmat('#',1,20),recordTime,recordTime);
