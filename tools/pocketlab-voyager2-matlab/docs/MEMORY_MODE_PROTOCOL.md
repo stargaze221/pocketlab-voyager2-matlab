@@ -375,3 +375,38 @@ Use **Open MAT (raw/decoded)** to open the most recent raw MAT file
 rather than repeatedly clicking **Download & Plot**. If decoding fails,
 preserve and share that exact `*_raw.mat` file for diagnosis. Do not
 clear device Memory Mode until its capture is safely backed up.
+
+## Verified real-capture decoder fix: trailing FF logical frames (Oct 20, 2026)
+
+Examined the actual `pocketlab_memory_20261020_215556_raw.mat`
+capture independently using SciPy (the capture is **not committed to
+the repo**). The transport got 276 BLE notifications of which 22 began
+with `0x96`, 253 were all-`FF` padding, and one was the three-byte
+`11 01 11` end marker. `ChunkLength=42`, with 210 bytes in each
+flash-containing notification (5 logical frames). Notifications 1–21
+each contain 5 valid `96 00 E0 00 00 00`-headed frames. The 22nd
+notification contains just one such frame followed by **four complete
+42-byte all-FF frames**. The old decoder rejected the first padded
+frame at offset 42.
+
+All 106 valid frames have mask `0x0000E000` (heading, pitch, roll);
+three float32 samples per frame yield **318 structurally valid samples**.
+All 954 decoded float32 values were finite, with physically plausible
+angle ranges. No decoding ambiguity was observed before the padding.
+The ending marker was present. The earlier separately reported
+330-sample capture is **not the same exact sample count**, so these
+captures should be compared before claiming repeat-download sample
+equivalence; the 318-sample result is correct for this uploaded raw
+file only.
+
+The decoder now accepts **only full-length all-0xFF logical frames as
+trailing padding**, counts them as `meta.PaddedLogicalFlashFrameCount`,
+and still rejects malformed partial headers, changed masks, unexpected
+payload lengths, or non-padding frames following the start of padding.
+Synthetic regression test: `tests/testMemoryFlashPadding.m`.
+The user's raw file never needs to be erased/re-downloaded to recover
+those 318 samples.
+
+After pulling the experimental branch, use GUI **Open MAT (raw/decoded)**
+and select the existing `*_raw.mat` to decode and save a separate
+recovered decoded MAT file without Bluetooth.
