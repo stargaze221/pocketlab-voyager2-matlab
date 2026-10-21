@@ -78,7 +78,8 @@ for k=1:numel(info.RawPackets)
         error('Flash packet %d has invalid payload size %d.',k,numel(payload));
     end
     values=typecast(payload,'single');
-    if computer('endian')~='L'
+    [~,~,endianness]=computer;
+    if endianness~='L'
         values=swapbytes(values);
     end
     block=reshape(double(values),nChannels,[]).';
