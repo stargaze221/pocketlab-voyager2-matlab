@@ -5,8 +5,12 @@ function info = pocketlabMemoryStart(Fs,varargin)
 %       "Sensors",["acceleration","gyroscope"])
 %
 %   Sensor groups: acceleration, gyroscope, magnetometer, heading,
-%   pitch, roll, quaternion. Default = all seven groups (16 channels).
+%   pitch, roll, quaternion, temperature, pressure, humidity, altitude,
+%   dewpoint, heatindex, rangefinder, uvlight, ambientlight, irlight.
+%   Default = established seven-group (16-channel) IMU+attitude profile.
 %   Sensor-subset Flash recording is EXPERIMENTAL until hardware tested.
+%   Environmental/light/rangefinder groups are newly supported but have
+%   NOT YET been physically validated in offline Memory Mode.
 %
 %   Experimental on firmware VP.1.2. Supports the previously observed
 %   20 Hz, 16-channel flash format. Refuses to start when recording data
@@ -40,7 +44,9 @@ if isempty(sensorNames) || any(ismissing(sensorNames)) || ...
 end
 registry=pocketlabSensorRegistry();
 allowed=["acceleration","gyroscope","magnetometer", ...
-    "heading","pitch","roll","quaternion"];
+    "heading","pitch","roll","quaternion", ...
+    "temperature","pressure","humidity","altitude","dewpoint", ...
+    "heatindex","rangefinder","uvlight","ambientlight","irlight"];
 if ~all(ismember(sensorNames,allowed))
     error('Memory recording supports: %s.',strjoin(cellstr(allowed),', '));
 end
