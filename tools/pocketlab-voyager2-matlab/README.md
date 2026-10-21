@@ -4,6 +4,10 @@ BLE acquisition and analysis utilities for the PocketLab Voyager 2, used in the 
 
 This folder is **instructor-managed infrastructure**. Students should normally run `startup` at the repository root and use the supported lab scripts or GUI, rather than editing the driver.
 
+## MATLAB compatibility
+
+**MATLAB R2023b or newer is recommended**, especially for the repository's `gitclone`/`gitrepo`/`pull` setup and update workflow (MathWorks added the MATLAB Git API in R2023b). The underlying BLE interface dates to R2019b, but this driver and GUI have **not** been verified across all MATLAB 202x releases. A Windows or macOS computer with Bluetooth Low Energy and a PocketLab Voyager 2 is required. See the [root README](../../README.md#matlab-version-and-system-requirements) for details.
+
 ## Recommended: GUI
 
 From the repository root:
