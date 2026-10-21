@@ -172,7 +172,9 @@ while toc(startClock)<recordTime
     % while acquisition runs in the Start Live button callback.
     if ~isempty(shouldStop)
         if toc(lastUICheckClock)>=0.10
-            drawnow limitrate;
+            % Process pending button events promptly: a throttled drawnow
+            % may defer callback dispatch while the plot is busy.
+            drawnow;
             lastUICheckClock=tic;
         end
         if logical(shouldStop())
