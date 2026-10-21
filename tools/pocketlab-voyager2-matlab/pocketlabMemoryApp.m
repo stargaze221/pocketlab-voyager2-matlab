@@ -4,8 +4,9 @@ function fig = pocketlabMemoryApp()
 %   pocketlabMemoryApp
 %
 %   All hardware commands are delegated to pocketlabMemoryProbe,
-%   pocketlabMemoryClear, pocketlabMemoryStart, pocketlabMemoryStop, and
-%   pocketlabMemoryDownload. The GUI does not issue raw BLE writes.
+%   pocketlabMemoryClear, pocketlabMemoryStart, pocketlabMemoryStop,
+%   pocketlabMemoryDownload, and pocketlabBattery. The GUI does not
+%   issue raw BLE writes.
 %
 %   Live streaming and device Memory Mode are ALTERNATIVE modes. The GUI
 %   never tries to stream while hardware Memory recording is active.
@@ -58,10 +59,11 @@ main.ColumnWidth = {'1x'};
 main.Padding = [14 12 14 12];
 main.RowSpacing = 9;
 
-header = uigridlayout(main,[1 2]);
+header = uigridlayout(main,[1 4]);
 header.Layout.Row = 1;
-header.ColumnWidth = {'1x','1x'};
+header.ColumnWidth = {'2.1x','1.25x','0.8x','0.7x'};
 header.Padding = [0 0 0 0];
+header.ColumnSpacing = 9;
 
 titleLabel = uilabel(header,'Text','PocketLab Voyager 2 — Memory + Live', ...
     'FontSize',19,'FontWeight','bold');
@@ -70,6 +72,16 @@ titleLabel.Layout.Column = 1;
 stateLabel = uilabel(header,'Text','Device: Unknown | Press Refresh Status', ...
     'FontSize',13,'HorizontalAlignment','right');
 stateLabel.Layout.Column = 2;
+
+batteryButton = uibutton(header,'push','Text','Check Battery', ...
+    'ButtonPushedFcn',@(~,~)performAction("battery"), ...
+    'Tooltip','Reads the paired Voyager 2 battery level once over BLE');
+batteryButton.Layout.Column = 3;
+
+batteryLabel = uilabel(header,'Text','Battery: --', ...
+    'FontSize',13,'HorizontalAlignment','right', ...
+    'Tooltip','Press Check Battery to read the current battery percentage');
+batteryLabel.Layout.Column = 4;
 
 sensorPanel = uipanel(main,'Title','Select sensors (Memory Mode or Real-Time streaming)');
 sensorPanel.Layout.Row = 2;
@@ -234,6 +246,10 @@ updateControls();
         liveStopButton.Enable = switchState(liveRunning && ~liveStopRequested);
         liveDurationSpinner.Enable = switchState(enabled);
         refreshButton.Enable = switchState(enabled);
+        % Battery BLE reads are separate connections; do not overlap
+        % device Flash recording, live streaming, or download.
+        batteryButton.Enable = switchState(enabled && ...
+            deviceState~="Recording" && ~liveRunning);
         openButton.Enable = switchState(enabled);
         clearButton.Enable = switchState(enabled && deviceState=="Recorded");
         startButton.Enable = switchState(enabled && deviceState=="Empty");
@@ -397,6 +413,24 @@ updateControls();
         updateControls();
         try
             switch action
+                case "battery"
+                    if deviceState=="Recording" || liveRunning
+                        error('Battery check is unavailable during acquisition.');
+                    end
+                    % Reuse the existing standard BLE Battery Service
+                    % reader; do not change Flash status or sensor settings.
+                    level = pocketlabBattery();
+                    if ~isscalar(level) || ~isfinite(level) || ...
+                            level<0 || level>100
+                        error('PocketLab returned an invalid battery level.');
+                    end
+                    batteryLabel.Text = sprintf('Battery: %.0f%%',level);
+                    batteryLabel.Tooltip = ['Last battery check: ' ...
+                        datestr(now,'HH:MM:SS') ...
+                        ' (read on demand; not continuously updated)'];
+                    addLog("Battery check: "+ ...
+                        string(sprintf('%.0f',level))+"%");
+
                 case "refresh"
                     r = pocketlabMemoryProbe("status");
                     newState = string(r.MemoryState);
@@ -624,6 +658,11 @@ updateControls();
                     end
             end
         catch ME
+            if action=="battery"
+                batteryLabel.Text = 'Battery: unavailable';
+                batteryLabel.Tooltip = ...
+                    'Battery read failed. Power on device and check pairing.';
+            end
             diagnostic = string(ME.message);
             if ~isempty(ME.stack)
                 diagnostic = diagnostic+" ("+string(ME.stack(1).name)+ ...
