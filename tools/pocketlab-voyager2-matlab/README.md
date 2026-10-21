@@ -61,7 +61,7 @@ A new Memory Mode recording requires device status **Empty**. Existing recorded 
 ## What has been validated?
 
 - Real hardware tests confirm acceleration/gyroscope multi-sensor streaming at **nominal 20 Hz**, and selected device Memory Mode captures with successful decoder output.
-- Other combinations, measurement units, packet interpretations, hardware sample timestamps, and synchronization guarantees remain experimental unless independently checked.
+- Other combinations, measurement units, packet interpretations, hardware sample timestamps, and synchronization guarantees remain experimental unless independently checked. These **validation-status notes no longer generate repetitive MATLAB warnings** on each ordinary acquisition. Inspect `info.Validated` (single sensor) or `info.DecodingIsVerified` (multi-sensor) when deciding what experimental claims the evidence supports.
 - Some Flash transfers return no end marker and instead stop after a no-data-progress timeout. The raw capture is preserved, and such transfers must not be labeled complete.
 
 See the [root README](../../README.md) for the full workspace/lab workflow and [Memory Mode investigation](docs/MEMORY_MODE_PROTOCOL.md) for protocol details and a chronological development record.
