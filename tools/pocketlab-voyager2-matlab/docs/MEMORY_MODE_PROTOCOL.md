@@ -73,3 +73,31 @@ Do not run this prototype at the same time as `pocketlabReadMulti` or the offici
 - [ ] Determine what timing is reconstructed versus transmitted by the device.
 
 **Scope:** The sample-time values recovered from the instruction describe requested/nominal sample spacing. They cannot by themselves establish hardware clock drift or sampling jitter.
+
+## Hardware test: VP.1.2 raw memory capture (October 20, 2026)
+
+Observed in MATLAB:
+- `pocketlabMemoryProbe("status")`: `11 01 01` → Recorded.
+- Raw download: **278 notifications**, including 152 flash packets (`0x96`), 125 full-size all-`FF` packets, one 195-byte all-`FF` packet, and one 3-byte end marker `11 01 11`.
+- All 152 flash packets had size **198 bytes**, identical little-endian sensor mask `0x0001FFF0`, and zero encoder samples. Each contained **3 samples × 16 float32 channels** after a 6-byte header, yielding **456 samples**.
+- Channel allocation in ascending sensor mask order: acceleration XYZ (3), gyroscope XYZ (3), magnetometer XYZ (3), heading (1), pitch (1), roll (1), quaternion (4). The decoded acceleration Y mean was **1.00373 g**, and all quaternions had norms ~1.
+- Chunk response `13 01 C6` establishes 198-byte chunks.
+- **Important:** memory-rate response `14 04 FF FF FF FF` is invalid / uninitialized. Treat nominal rate as unknown from this response. The MATLAB probe was patched to reject it.
+- User-space packet begins `95 66 06 00 00`, signature `1638`, followed by four uint32 little-endian words: `[1, 4351, 8, 1792543664]`.
+- The third user-space word **8** matches frequency index **8 = 20 Hz** in PocketLab Notebook Voyager 2's `M0` frequency table. Nominal duration = 456 / 20 = **22.8 seconds**, last sample nominal t = 22.75 seconds.
+- Fourth word `1792543664` corresponds to **2026-10-21 00:47:44 UTC** (local CDT 2026-10-20 19:47:44), consistent with experiment. It is likely a web-app-supplied record start timestamp; the origin is **unverified**.
+- The Flash samples have **no individually decoded hardware timestamps**. Relative times are reconstructed at 0.05 s increments based on the app's recorded rate index, without proof of instantaneous hardware sample spacing.
+- Standalone offline MATLAB decoder: `pocketlabDecodeMemory.m` (no BLE operations or erase).
+
+Run offline, after pulling the experimental branch:
+```matlab
+S=load('voyager_memory_raw.mat');
+[t,data,meta]=pocketlabDecodeMemory(S.info);
+size(data.acceleration)
+size(data.quaternion)
+meta.NominalFrequencyHz
+meta.UserSpaceTimeUTC
+plot(t,data.acceleration)
+```
+
+**Important caution:** Only the 16-channel `0x0001FFF0` sample mapping was directly verified against this captured .mat file. The decoder can parse other *supported* subsets but those other configurations have not been hardware tested.
