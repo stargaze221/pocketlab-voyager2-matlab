@@ -1,5 +1,5 @@
 function [t,data,info] = pocketlabReadMulti(sensorNames,recordTime,Fs,varargin)
-%POCKETLABREADMULTI EXPERIMENTAL simultaneous Voyager 2 sensor stream probe.
+%POCKETLABREADMULTI Simultaneous Voyager 2 sensor acquisition.
 %
 %   [t,data,info] = pocketlabReadMulti( ...
 %       ["acceleration","gyroscope"],10,20)
@@ -15,10 +15,11 @@ function [t,data,info] = pocketlabReadMulti(sensorNames,recordTime,Fs,varargin)
 %     "SaveFile"     full/relative .mat path for raw capture (default "")
 %     "DecodePacked" true/false (default true); false = raw probe only
 %
-%   WARNING: The combined-stream wire format and sample synchronization
-%   have NOT been verified on physical Voyager 2 hardware. Decoded samples
-%   are CANDIDATES, NOT validated measurements. Do not use as course data
-%   until the packet format is verified against physical references.
+%   PHYSICAL VALIDATION: Acceleration + gyroscope at 20 Hz has been
+%   checked on Voyager 2 hardware using stationary, dynamic, and
+%   independent gyroscope reference measurements. Other combinations and
+%   rates remain experimental. Sample times are nominal (0:N-1)/Fs;
+%   hardware timestamp accuracy and precise synchronization are unverified.
 %   Use pocketlabRead for the established single-sensor acquisition path.
 
 validateattributes(recordTime,{'numeric'}, ...
@@ -99,13 +100,21 @@ rawPackets=cell(0,1);
 packetLengths=zeros(0,1);
 decodedPackets=0;
 undecodedPackets=0;
+validatedConfiguration=(numel(sensorNames)==2 && Fs==20 && ...
+    all(ismember(["acceleration","gyroscope"],sensorNames)));
 
 if ~quiet
-    fprintf('\nEXPERIMENTAL multi-sensor BLE probe\n');
+    fprintf('\nPocketLab Voyager 2 - Multi-Sensor Acquisition\n');
+    fprintf('----------------------------------------------\n');
     fprintf('Sensors: %s | Fs: %g Hz | Duration: %g s\n', ...
         strjoin(cellstr(sensorNames),', '),Fs,recordTime);
     fprintf('Combined config: 0x%s\n',dec2hex(mask,8));
-    fprintf('Candidate decoding is NOT physically validated.\n');
+    if validatedConfiguration
+        fprintf('Validation: Acceleration/Gyroscope channel mapping checked at 20 Hz.\n');
+    else
+        fprintf('Validation: This sensor combination/rate is experimental.\n');
+    end
+    fprintf('Timing: Nominal sample timestamps; hardware timing unverified.\n');
 end
 
 serviceUUID="152FDEA4-28A1-11ED-A261-0242AC120002";
@@ -192,7 +201,8 @@ info.RawPackets=rawPackets;
 info.DecodedPacketCount=decodedPackets;
 info.UndecodedPacketCount=undecodedPackets;
 info.CandidateSampleCount=nSamples;
-info.DecodingIsVerified=false;
+info.SampleCount=nSamples;
+info.DecodingIsVerified=validatedConfiguration && decodePacked && decodedPackets>0;
 info.SynchronizationIsVerified=false;
 info.AssumedFrame="6-byte header, then ordered float32 sensor values";
 info.SaveFile=saveFile;
@@ -202,10 +212,10 @@ if decodePacked && decodedPackets==0
         ['No packets matched the assumed combined format. ' ...
         'Inspect info.PacketLengths and info.RawPackets. ' ...
         'Do NOT interpret empty results as missing sensor motion.']);
-elseif decodePacked
+elseif decodePacked && ~validatedConfiguration
     warning('PocketLab:UnverifiedMultiDecode', ...
-        ['%d packet(s) provisionally decoded. The combined-stream layout ' ...
-        'and cross-sensor timing are UNVERIFIED.'],decodedPackets);
+        ['%d packet(s) structurally decoded. This sensor configuration ' ...
+        'has not been physically validated; timing is nominal.'],decodedPackets);
 end
 
 if strlength(saveFile)>0
@@ -213,8 +223,9 @@ if strlength(saveFile)>0
 end
 
 if ~quiet
-    fprintf('Packets: %d | candidate-decoded: %d | unmatched: %d\n', ...
+    fprintf('Packets: %d | data packets: %d | other packets: %d\n', ...
         info.PacketCount,decodedPackets,undecodedPackets);
+    fprintf('Samples: %d\n',nSamples);
     if strlength(saveFile)>0
         fprintf('Raw probe saved: %s\n',saveFile);
     end
