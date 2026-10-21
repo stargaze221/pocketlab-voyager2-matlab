@@ -11,7 +11,8 @@ function info = pocketlabMemoryProbe(mode,varargin)
 %  The download preserves raw packets. It does not interpret sample times
 %  as hardware timestamps and NEVER sends the memory erase command 4C 97.
 %
-%  Options: "Address", "SaveFile", "MaxDuration_s", "IdleTimeout_s", "MaxPackets", "Quiet".
+%  Options: "Address", "SaveFile", "MaxDuration_s", "IdleTimeout_s",
+%           "MaxPaddingWait_s", "MaxPackets", "Quiet".
 %  Disconnect PocketLab Notebook before using this function.
 
 if nargin<1 || strlength(string(mode))==0
@@ -27,6 +28,7 @@ addParameter(p,'Address',"",@(x)ischar(x)||isstring(x));
 addParameter(p,'SaveFile',"",@(x)ischar(x)||isstring(x));
 addParameter(p,'MaxDuration_s',180,@(x)isnumeric(x)&&isscalar(x)&&isfinite(x)&&x>0);
 addParameter(p,'IdleTimeout_s',15,@(x)isnumeric(x)&&isscalar(x)&&isfinite(x)&&x>0);
+addParameter(p,'MaxPaddingWait_s',30,@(x)isnumeric(x)&&isscalar(x)&&isfinite(x)&&x>0);
 addParameter(p,'MaxPackets',10000,@(x)isnumeric(x)&&isscalar(x)&&isfinite(x)&&x>=1&&x==floor(x));
 addParameter(p,'Quiet',false,@(x)islogical(x)||isnumeric(x));
 parse(p,varargin{:});
@@ -188,17 +190,28 @@ flashCount=0;
 complete=false;
 downloadClock=tic;
 lastPacketClock=tic;
+lastUsefulClock=tic;
 lastProgressClock=tic;
 idleTimedOut=false;
+paddingTimedOut=false;
+paddingCount=0;
 while toc(downloadClock)<p.Results.MaxDuration_s && ...
       numel(rawPackets)<p.Results.MaxPackets
     if toc(lastPacketClock)>=p.Results.IdleTimeout_s
         idleTimedOut=true;
         break
     end
+    % Empty FF packets can continue indefinitely even after real flash
+    % transfer stops. They are NOT evidence of useful data progress.
+    % Allow a generous 30 s after the last non-padding notification for
+    % the genuine end marker (previous successful runs needed ~10 s).
+    if toc(lastUsefulClock)>=p.Results.MaxPaddingWait_s
+        paddingTimedOut=true;
+        break
+    end
     if ~quiet && toc(lastProgressClock)>5
-        fprintf('Downloading memory: %d packets, %d flash (%.1f s elapsed)\n', ...
-            numel(rawPackets),flashCount,toc(downloadClock));
+        fprintf('Downloading memory: %d packets, %d flash, %d FF padding (%.1f s elapsed)\n', ...
+            numel(rawPackets),flashCount,paddingCount,toc(downloadClock));
         lastProgressClock=tic;
     end
     try
@@ -206,6 +219,11 @@ while toc(downloadClock)<p.Results.MaxDuration_s && ...
         raw=uint8(packet(:).');
         if isempty(raw), continue; end
         lastPacketClock=tic;
+        if all(raw==uint8(255))
+            paddingCount=paddingCount+1;
+        else
+            lastUsefulClock=tic;
+        end
         rawPackets{end+1,1}=raw; %#ok<AGROW>
         packetTimes(end+1,1)=stamp; %#ok<AGROW>
         packetLengths(end+1,1)=numel(raw); %#ok<AGROW>
@@ -229,13 +247,20 @@ info.PacketLengths=packetLengths;
 info.FlashPacketCount=flashCount;
 info.EndMarkerSeen=complete;
 info.IdleTimedOut=idleTimedOut;
+info.PaddingTimedOut=paddingTimedOut;
+info.PaddingPacketCount=paddingCount;
 info.AcquisitionElapsed_s=toc(downloadClock);
 if ~quiet
     fprintf('Memory raw download: %d packets (%d flash), end marker: %d\n', ...
         numel(rawPackets),flashCount,complete);
 end
 if ~complete
-    if idleTimedOut
+    if paddingTimedOut
+        warning('PocketLab:MemoryDownloadPadding', ...
+            ['Only FF padding received for %.0f s; stopped waiting for ' ...
+             'end marker. Raw capture will be saved, but may be incomplete.'], ...
+            p.Results.MaxPaddingWait_s);
+    elseif idleTimedOut
         warning('PocketLab:MemoryDownloadIdle', ...
             'No BLE packets for %.0f s; stopped waiting. Received %d flash packets.', ...
             p.Results.IdleTimeout_s,flashCount);
