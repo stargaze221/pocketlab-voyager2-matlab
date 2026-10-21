@@ -187,7 +187,7 @@ while toc(startClock)<recordTime
             progressLastSecond=progressSecond;
             fraction=elapsedProgress/recordTime;
             filled=min(20,floor(20*fraction));
-            fprintf('\\rRecording: [%s%s] %3.0f%% | %.0f / %g s', ...
+            fprintf('\rRecording: [%s%s] %3.0f%% | %.0f / %g s', ...
                 repmat('#',1,filled),repmat('-',1,20-filled), ...
                 floor(100*fraction),floor(elapsedProgress),recordTime);
         end
@@ -253,7 +253,7 @@ if ~isempty(onUpdate) && decodePacked
     end
 end
 if ~quiet
-    fprintf('\\rRecording: [%s] 100%% | %g / %g s\\n',repmat('#',1,20),recordTime,recordTime);
+    fprintf('\rRecording: [%s] 100%% | %g / %g s\n',repmat('#',1,20),recordTime,recordTime);
 end
 clear cleanupObj  % Disables all enabled sensors and unsubscribes.
 
