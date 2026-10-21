@@ -716,7 +716,12 @@ updateControls();
             xlabel(plotAxes,'Sample index');
         end
         ylabel(plotAxes,[key ' (native units unless verified)']);
-        title(plotAxes,[key ' — Memory Mode']);
+        if liveRunning || (isfield(lastDownloadInfo,'StoppedByUser') && ...
+                ~isfield(lastDownloadInfo,'Decoding'))
+            title(plotAxes,[key ' — Real-Time Mode']);
+        else
+            title(plotAxes,[key ' — Memory Mode']);
+        end
         grid(plotAxes,'on');
         if size(values,2)==3
             legend(plotAxes,{'X','Y','Z'},'Location','best');
