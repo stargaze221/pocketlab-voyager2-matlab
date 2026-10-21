@@ -171,3 +171,31 @@ This MATLAB clear function has **not yet** been tested on hardware.
 If the status does not become Empty, do not assume success and do
 not attempt recording. The operator must explicitly opt in for every
 destructive call; starting/stopping/downloading never auto-clears memory.
+
+## Hardware verification: selected 6-channel recording (October 20, 2026)
+
+- MATLAB `pocketlabMemoryStart(20,"Sensors",["acceleration","gyroscope"])` produced status `11 01 08`; `pocketlabMemoryStop()` produced `11 01 01`.
+- Memory frequency reply `14 04 96 00 03 00` gives nominal 20 Hz; chunk length reply `13 01 4E` gives **78 bytes**.
+- Flash download completed with **27 BLE notifications**: 26 notifications of **234 bytes**, followed by one of **78 bytes**, and one 3-byte completion notification (28 notifications total).
+- Critically, a 234-byte BLE notification concatenates **three 78-byte logical Flash frames**. Each logical frame has a header `96 F0 03 00 00 00`, followed by three 6-channel float32 samples. Frame starts are at offsets 0, 78, and 156 in a 234-byte BLE notification.
+- Logical Flash frame count = **26 × 3 + 1 = 79**; sample count = **79 × 3 = 237**; nominal recording duration = **11.85 seconds**, final sample at **11.80 seconds**.
+- Header mask `0x000003F0` confirms **acceleration XYZ + gyroscope XYZ** only. No extra sensor channels were recorded in these frames.
+- Decoded sample values are all finite; mean acceleration XYZ = approximately [-0.0362, 1.0049, -0.0293] g. Acceleration norm mean is approximately 1.006 g.
+- The user-space metadata returned an erased/uninitialized value (0x95 plus 0xFF). The decoder now falls back to the **valid queried frequency instruction** rather than requiring web-app metadata.
+- `pocketlabDecodeMemory.m` was corrected to split BLE notifications into `ChunkLength`-sized Flash frames and validate every embedded header and mask.
+- `pocketlabMemoryProbe(...).FlashPacketCount` counts *BLE* notifications starting with `0x96`; `pocketlabDecodeMemory(...).meta.FlashPacketCount` counts **logical Flash frames**. `meta.BLEFlashNotificationCount` distinguishes the two.
+
+**Offline regression test using the previously captured raw file (no BLE needed):**
+```matlab
+repo=gitrepo; pull(repo); clear pocketlabDecodeMemory
+S=load("imu_6channel_test_raw.mat");
+[t,data,meta]=pocketlabDecodeMemory(S.info);
+assert(meta.SampleCount==237)
+assert(meta.FlashPacketCount==79)
+assert(meta.BLEFlashNotificationCount==27)
+assert(meta.ConfigurationMask==uint32(hex2dec('000003F0')))
+assert(meta.NominalFrequencyHz==20)
+assert(isequal(sort(string(fieldnames(data))),sort(["acceleration";"gyroscope"])))
+```
+
+This recording demonstrates correct selective logging at nominal 20 Hz. Device clock accuracy and reliability of back-to-back BLE downloads remain separate, unverified issues.
