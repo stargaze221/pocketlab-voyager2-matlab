@@ -111,14 +111,14 @@ pause(0.10);
 rateResponse=uint8(read(rx));
 info.MemoryRateResponse=rateResponse;
 if numel(rateResponse)>=6
-    upper=double(rateResponse(3))+256*double(rateResponse(4));
-    lower=double(rateResponse(5))+256*double(rateResponse(6));
-    instruction=upper*65536+lower;
+    highWord=double(rateResponse(3))+256*double(rateResponse(4));
+    lowWord=double(rateResponse(5))+256*double(rateResponse(6));
+    instruction=highWord*65536+lowWord;
     info.FrequencyInstruction=instruction;
-    if upper>0
-        info.NominalChunkInterval_s=upper/1000;
-        if lower>0
-            info.NominalSampleInterval_s=upper/(1000*lower);
+    if highWord>0
+        info.NominalChunkInterval_s=highWord/1000;
+        if lowWord>0
+            info.NominalSampleInterval_s=highWord/(1000*lowWord);
         end
     end
 else
