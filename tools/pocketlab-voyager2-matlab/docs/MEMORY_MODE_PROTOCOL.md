@@ -101,3 +101,45 @@ plot(t,data.acceleration)
 ```
 
 **Important caution:** Only the 16-channel `0x0001FFF0` sample mapping was directly verified against this captured .mat file. The decoder can parse other *supported* subsets but those other configurations have not been hardware tested.
+
+## Selective recording and saving (experimental)
+
+The MATLAB prototype now accepts a sensor-group selector on the **recording**
+command. The default (no `Sensors` option) is the previously tested full
+16-channel layout. Only 20 Hz is currently supported.
+
+```matlab
+% After safeguarding/clearing the device's previous recording using app:
+startInfo = pocketlabMemoryStart(20, ...
+    "Sensors",["acceleration","gyroscope"]);
+% Physically move the device; wait the desired duration.
+stopInfo = pocketlabMemoryStop();
+[t,data,info] = pocketlabMemoryDownload("FilePrefix","my_imu_test");
+```
+
+The recording command transmits a bitwise-OR sensor mask from
+`pocketlabSensorRegistry`. Valid sensor groups are `acceleration`,
+`gyroscope`, `magnetometer`, `heading`, `pitch`, `roll`,
+and `quaternion`. Subset recording has **not** yet been verified on the
+device: inspect `info.Decoding.ConfigurationMask`, `info.Decoding.SampleCount`
+and decoded waveforms before relying on a subset. The actual device mask
+is recovered from Flash packets, not inferred from requested sensors.
+
+Optionally filter the **decoded file** after a full-device recording:
+
+```matlab
+[t,data,info] = pocketlabMemoryDownload( ...
+    "Sensors",["acceleration","gyroscope"],"FilePrefix","imu_only");
+```
+
+This second `Sensors` option filters the decoded MAT file only; the raw
+capture file is always retained, and does NOT imply the sensor was disabled
+during recording. Do not repeatedly download needlessly: a repeated
+download was observed to stall after querying the memory chunk size.
+The raw-download driver now includes 5-second progress and a 15-second
+idle timeout to help diagnose this, but repeatability is still unverified.
+
+The start/stop commands were physically verified with device statuses
+`11 01 08` (Recording) and `11 01 01` (Recorded).
+A complete 996-sample, 20 Hz *nominal* (~49.8-second) recording was saved
+and decoded. No per-sample hardware timestamp was verified.
