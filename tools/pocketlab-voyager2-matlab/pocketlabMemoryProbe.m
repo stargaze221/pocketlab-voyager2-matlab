@@ -4,15 +4,17 @@ function info = pocketlabMemoryProbe(mode,varargin)
 %  info = pocketlabMemoryProbe("status")
 %  info = pocketlabMemoryProbe("download","SaveFile","memory_probe.mat")
 %
-%  EXPERIMENTAL: Inferred from PocketLab Notebook JavaScript and observed
-%  Edge BLE command logs for Voyager 2 (firmware VP.1.2). Hardware execution
-%  of THIS MATLAB function has not yet been verified.
+%  Protocol inferred from PocketLab Notebook JS and BLE logs; memory
+%  status, Flash reading and completion markers tested on VP.1.2.
+%  Repeatability of the completion marker remains under investigation.
 %
 %  The download preserves raw packets. It does not interpret sample times
 %  as hardware timestamps and NEVER sends the memory erase command 4C 97.
 %
 %  Options: "Address", "SaveFile", "MaxDuration_s", "IdleTimeout_s",
-%           "MaxPaddingWait_s", "MaxPackets", "Quiet".
+%           "MaxPaddingWait_s", "MaxPackets", "Quiet", "WarnOnIncomplete".
+%  MaxPaddingWait_s (legacy name) limits elapsed time since last actual
+%  Flash frame (0x96). Status and unrelated BLE packets are not progress.
 %  Disconnect PocketLab Notebook before using this function.
 
 if nargin<1 || strlength(string(mode))==0
@@ -28,9 +30,10 @@ addParameter(p,'Address',"",@(x)ischar(x)||isstring(x));
 addParameter(p,'SaveFile',"",@(x)ischar(x)||isstring(x));
 addParameter(p,'MaxDuration_s',180,@(x)isnumeric(x)&&isscalar(x)&&isfinite(x)&&x>0);
 addParameter(p,'IdleTimeout_s',15,@(x)isnumeric(x)&&isscalar(x)&&isfinite(x)&&x>0);
-addParameter(p,'MaxPaddingWait_s',30,@(x)isnumeric(x)&&isscalar(x)&&isfinite(x)&&x>0);
+addParameter(p,'MaxPaddingWait_s',25,@(x)isnumeric(x)&&isscalar(x)&&isfinite(x)&&x>0);
 addParameter(p,'MaxPackets',10000,@(x)isnumeric(x)&&isscalar(x)&&isfinite(x)&&x>=1&&x==floor(x));
 addParameter(p,'Quiet',false,@(x)islogical(x)||isnumeric(x));
+addParameter(p,'WarnOnIncomplete',true,@(x)islogical(x)&&isscalar(x));
 parse(p,varargin{:});
 address=string(p.Results.Address);
 saveFile=string(p.Results.SaveFile);
@@ -70,6 +73,7 @@ info.MemoryRateResponse=uint8([]);
 info.MemoryChunkResponse=uint8([]);
 info.FrequencyInstruction=NaN;
 info.MemoryRateValid=false;
+info.MemoryRateUninitialized=false;
 info.ChunkLength=NaN;
 info.NominalChunkInterval_s=NaN;
 info.NominalSampleInterval_s=NaN;
@@ -128,6 +132,14 @@ if numel(rateResponse)>=6
         info.MemoryRateValid=true;
         info.NominalChunkInterval_s=highWord/1000;
         info.NominalSampleInterval_s=highWord/(1000*lowWord);
+    elseif all(rateResponse(3:6)==uint8(255))
+        % Frequently observed on MATLAB-started recordings. These bytes
+        % mean rate metadata are unset, NOT that saved Flash is corrupt.
+        info.MemoryRateUninitialized=true;
+        if ~quiet
+            fprintf(['Memory rate metadata unset (FF FF FF FF); ' ...
+                'nominal rate must come from the recording settings.\n']);
+        end
     else
         warning('PocketLab:InvalidMemoryRate', ...
             ['Memory rate response is not a recognized Voyager 2 rate ' ...
@@ -190,28 +202,31 @@ flashCount=0;
 complete=false;
 downloadClock=tic;
 lastPacketClock=tic;
-lastUsefulClock=tic;
+lastFlashClock=tic;
 lastProgressClock=tic;
 idleTimedOut=false;
 paddingTimedOut=false;
 paddingCount=0;
+otherCount=0;
+endStatusCount=0;
 while toc(downloadClock)<p.Results.MaxDuration_s && ...
       numel(rawPackets)<p.Results.MaxPackets
     if toc(lastPacketClock)>=p.Results.IdleTimeout_s
         idleTimedOut=true;
         break
     end
-    % Empty FF packets can continue indefinitely even after real flash
-    % transfer stops. They are NOT evidence of useful data progress.
-    % Allow a generous 30 s after the last non-padding notification for
-    % the genuine end marker (previous successful runs needed ~10 s).
-    if toc(lastUsefulClock)>=p.Results.MaxPaddingWait_s
+    % Non-FF packets can be unrelated background BLE traffic.
+    % Only actual 0x96 Flash notifications extend the completion grace.
+    % Some successful end markers arrive many seconds after last Flash.
+    if toc(lastFlashClock)>=p.Results.MaxPaddingWait_s
         paddingTimedOut=true;
         break
     end
     if ~quiet && toc(lastProgressClock)>5
-        fprintf('Downloading memory: %d packets, %d flash, %d FF padding (%.1f s elapsed)\n', ...
-            numel(rawPackets),flashCount,paddingCount,toc(downloadClock));
+        fprintf(['Downloading memory: %d packets, %d flash, ' ...
+            '%d FF padding, %d other (%.1f s elapsed)\n'], ...
+            numel(rawPackets),flashCount,paddingCount, ...
+            otherCount,toc(downloadClock));
         lastProgressClock=tic;
     end
     try
@@ -219,19 +234,23 @@ while toc(downloadClock)<p.Results.MaxDuration_s && ...
         raw=uint8(packet(:).');
         if isempty(raw), continue; end
         lastPacketClock=tic;
-        if all(raw==uint8(255))
-            paddingCount=paddingCount+1;
-        else
-            lastUsefulClock=tic;
-        end
         rawPackets{end+1,1}=raw; %#ok<AGROW>
         packetTimes(end+1,1)=stamp; %#ok<AGROW>
         packetLengths(end+1,1)=numel(raw); %#ok<AGROW>
         if raw(1)==150
             flashCount=flashCount+1;
-        elseif raw(1)==17 && numel(raw)>=3 && bitand(raw(3),uint8(16))~=0
-            complete=true;
-            break
+            lastFlashClock=tic;
+        elseif all(raw==uint8(255))
+            paddingCount=paddingCount+1;
+        elseif raw(1)==17 && numel(raw)>=3
+            endStatusCount=endStatusCount+1;
+            if bitand(raw(3),uint8(16))~=0
+                complete=true;
+                break
+            end
+            otherCount=otherCount+1;
+        else
+            otherCount=otherCount+1;
         end
     catch ME
         if localNoNewData(ME)
@@ -249,25 +268,32 @@ info.EndMarkerSeen=complete;
 info.IdleTimedOut=idleTimedOut;
 info.PaddingTimedOut=paddingTimedOut;
 info.PaddingPacketCount=paddingCount;
+info.OtherPacketCount=otherCount;
+info.StatusPacketCount=endStatusCount;
+info.NoFlashTimeout_s=p.Results.MaxPaddingWait_s;
+if complete
+    info.DownloadStopReason="EndMarker";
+elseif paddingTimedOut
+    info.DownloadStopReason="NoFlashProgressTimeout";
+elseif idleTimedOut
+    info.DownloadStopReason="NoBLEPacketsTimeout";
+elseif numel(rawPackets)>=p.Results.MaxPackets
+    info.DownloadStopReason="MaxPackets";
+else
+    info.DownloadStopReason="MaxDuration";
+end
 info.AcquisitionElapsed_s=toc(downloadClock);
 if ~quiet
-    fprintf('Memory raw download: %d packets (%d flash), end marker: %d\n', ...
-        numel(rawPackets),flashCount,complete);
+    fprintf(['Memory raw download: %d packets (%d flash, %d FF padding, ' ...
+        '%d other), end marker: %d, stop: %s\n'], ...
+        numel(rawPackets),flashCount,paddingCount,otherCount, ...
+        complete,info.DownloadStopReason);
 end
-if ~complete
-    if paddingTimedOut
-        warning('PocketLab:MemoryDownloadPadding', ...
-            ['Only FF padding received for %.0f s; stopped waiting for ' ...
-             'end marker. Raw capture will be saved, but may be incomplete.'], ...
-            p.Results.MaxPaddingWait_s);
-    elseif idleTimedOut
-        warning('PocketLab:MemoryDownloadIdle', ...
-            'No BLE packets for %.0f s; stopped waiting. Received %d flash packets.', ...
-            p.Results.IdleTimeout_s,flashCount);
-    else
-        warning('PocketLab:MemoryDownloadIncomplete', ...
-            'End marker not observed. Download may be incomplete.');
-    end
+if ~complete && p.Results.WarnOnIncomplete
+    warning('PocketLab:MemoryDownloadIncomplete', ...
+        ['Flash download unconfirmed (reason: %s). Received %d Flash ' ...
+         'packets; preserve raw capture and inspect sample count.'], ...
+        info.DownloadStopReason,flashCount);
 end
 
 % Cleanup puts device back online and unsubscribes. No erase is sent.
