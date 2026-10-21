@@ -39,8 +39,15 @@ probeInfo=pocketlabMemoryProbe("download", ...
     "Address",address,"SaveFile",rawFile, ...
     "MaxDuration_s",p.Results.MaxDuration_s);
 
-% Raw MAT is saved first even if subsequent decoding fails.
-[t,data,decodeMeta]=pocketlabDecodeMemory(probeInfo,"FrequencyHz",20);
+% Raw MAT is already saved by the transport stage. Make that visible
+% BEFORE decoding, which can fail for unrecognized sensor framing.
+fprintf('Raw capture preserved: %s\n',rawFile);
+try
+    [t,data,decodeMeta]=pocketlabDecodeMemory(probeInfo,"FrequencyHz",20);
+catch ME
+    fprintf(2,'Offline decoder failed; raw BLE capture remains in: %s\n',rawFile);
+    rethrow(ME);
+end
 
 % Filter decoded values only when explicitly requested. Never discard raw.
 requested=lower(strtrim(string(p.Results.Sensors(:).')));
