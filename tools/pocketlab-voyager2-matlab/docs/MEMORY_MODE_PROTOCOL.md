@@ -232,3 +232,48 @@ The configuration bits come from the driver sensor registry; conversion
 to physical units for new sensor types is not yet validated. Existing
 six-channel and sixteen-channel IMU recordings should continue to decode
 without change.
+
+## MATLAB GUI: PocketLab Memory App (initial build)
+
+A programmatic `uifigure`-based interface is available in
+`pocketlabMemoryApp.m` (no App Designer project required). The GUI
+delegates BLE work to the existing, tested functions rather than
+reimplementing the BLE protocol.
+
+```matlab
+repo=gitrepo;
+pull(repo);
+clear pocketlabMemoryApp
+pocketlabMemoryApp
+```
+
+**Workflow:** Disconnect PocketLab Notebook in the web browser → Refresh
+Status → select sensor groups or apply a preset → if previously recorded,
+verify a MATLAB backup and select **Clear Device** (separate confirmation)
+→ Start Recording → physically run the experiment → Stop Recording →
+Download & Plot. The downloaded raw and decoded MAT files are saved by
+the existing driver with automatically timestamped filenames when the
+optional file prefix is blank. The plot dropdown displays one selected
+sensor group at a time. **Open MAT File** loads an existing decoded
+`.mat` with `t` and `data`, without Bluetooth connection.
+
+Initial GUI safety behaviors:
+- Unknown device status disables destructive and recording commands
+  until Refresh Status; Clear Device requires a confirmation dialog and
+  `pocketlabMemoryClear("ConfirmErase",true)`.
+- Start is available only for `Empty` status, Stop only for
+  `Recording`, Download only for `Recorded`.
+- The application never clears memory automatically, never erases local
+  saved files, and never silently treats a missing download completion
+  marker as success.
+- Recording continues on hardware after **Start** even if the GUI
+  closes unexpectedly. When its last observed state is Recording, the
+  GUI warns before closing.
+- 20 Hz nominal recording only; hardware sample clock accuracy remains
+  unverified. Some extended environmental/light/rangefinder sensor
+  combinations are still experimental.
+
+**Validation status:** The underlying memory commands and selected
+sensor subsets have been physically tested. **This GUI itself has not
+yet been run in the user's MATLAB session**, so UI layout and callback
+compatibility need one smoke test before use by students.
