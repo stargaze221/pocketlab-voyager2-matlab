@@ -16,7 +16,7 @@ function [t,Y,info] = pocketlabRead(sensorName,recordTime,Fs,varargin)
 %   "Units"     Acceleration only: "g" or "m/s^2"
 %   "ExternalMode"  External sensor only:
 %                   "voltage","resistance","current","temperature"
-%   "SuppressExperimentalWarning"  true/false
+%   "SuppressExperimentalWarning"  legacy option (accepted; no-op)
 %   "SaveFile"    optional .mat path containing t, data, info for the GUI
 %   "OnUpdate"    optional callback @(t,Y) for live GUI plots
 %   "ShouldStop"  optional callback @() logical for early stopping
@@ -56,7 +56,6 @@ address = string(p.Results.Address);
 quiet = logical(p.Results.Quiet);
 unitsRequested = string(p.Results.Units);
 externalMode = lower(string(p.Results.ExternalMode));
-suppressWarning = logical(p.Results.SuppressExperimentalWarning);
 saveFile = string(p.Results.SaveFile);
 onUpdate = p.Results.OnUpdate;
 shouldStop = p.Results.ShouldStop;
@@ -71,14 +70,9 @@ if ~isfield(registry,sensorKey)
         sensorName);
 end
 
+% Hardware-validation status is returned in info.Validated. It is not
+% emitted as a MATLAB warning on every normal acquisition.
 sensor = registry.(sensorKey);
-
-if ~sensor.Validated && ~suppressWarning
-    warning('PocketLab:ExperimentalSensor', ...
-        ['"%s" is included from the Voyager 2 public device configuration, ' ...
-         'but has not yet been physically validated with this MATLAB driver.'], ...
-        sensor.DisplayName);
-end
 
 driverDir   = fileparts(mfilename('fullpath'));
 pairingFile = fullfile(driverDir,'pocketlab_pairing.mat');
