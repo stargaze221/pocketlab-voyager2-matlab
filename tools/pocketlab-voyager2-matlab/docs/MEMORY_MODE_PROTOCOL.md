@@ -454,3 +454,43 @@ only clear after explicitly confirming backups. Select sensors,
 **Stop Recording** after roughly 10–15 seconds, then
 **Download & Plot**. Compare the frozen PC elapsed time and decoded
 nominal time; investigate mismatches if completion marker is absent.
+
+## Download responsiveness and warning cleanup — October 20, 2026
+
+An additional real GUI download returned 68 Flash notifications (114-byte
+logical frames), 408 samples / 20.4 s nominal, but no completion marker.
+By 15.2 seconds, 68 Flash packets and 180 all-FF padding packets had
+arrived. By the 90-second limit, **640** packets arrived, still only
+**68 Flash and 180 all-FF**, implying approximately 392 other BLE
+notifications. Previously, the "no useful progress" clock was reset by
+*any* packet that was not all-FF, including unrelated notifications.
+Thus the 30-second padding-timeout threshold never triggered.
+
+**Experimental-branch fix:**
+- `pocketlabMemoryProbe` now resets the progress clock **only on actual
+  Flash notifications** (`0x96`). It counts Flash, full-FF padding, and
+  other BLE notifications separately in progress reports and returned
+  info. Its legacy `MaxPaddingWait_s` option now means the maximum
+  time without further Flash progress; default **25 seconds**.
+  The idle timeout for zero BLE traffic remains 15 seconds.
+- The `info.DownloadStopReason` distinguishes `EndMarker`,
+  `NoFlashProgressTimeout`, `NoBLEPacketsTimeout`,
+  `MaxPackets`, and `MaxDuration`. A timeout is NOT reclassified as
+  a successful complete download.
+- When the exact rate response is `14 04 FF FF FF FF`, the metadata are
+  uninitialized, which is now shown as a console **notice rather than a
+  repeated stack-trace warning**. Inferred 20-Hz sample times remain
+  nominal, not independently proven by the firmware response.
+  Unexpected non-FF invalid rate responses still raise a warning.
+- `pocketlabMemoryDownload` suppresses the underlying Probe warning
+  and issues **at most one high-level incomplete-download warning**.
+  The GUI suppresses that high-level console warning in favor of its
+  existing **Incomplete download** dialog, and always saves raw and
+  decoded MAT files when decodable.
+
+These changes reduce unnecessary waiting and duplicate alerts but do
+**not** repair or invent missing completion markers or establish that
+all samples transferred. The root cause of the stray BLE notifications
+is not yet confirmed because the 640-packet raw capture was not
+uploaded. Changes require a new hardware smoke test; prior successful
+raw-capture decoding remains supported.
