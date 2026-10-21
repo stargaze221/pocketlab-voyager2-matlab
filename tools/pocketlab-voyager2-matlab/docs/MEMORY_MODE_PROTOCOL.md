@@ -327,3 +327,51 @@ save the stack trace and do not overwrite successful capture files.
 
 The streaming GUI callback path has not yet been physically exercised
 and needs a user-side smoke test.
+
+## GUI repeated-download issue: status October 20, 2026
+
+The first successful attitude Memory Mode download reported `23 BLE
+notifications (22 Flash), end marker 1`; 330 decoded samples at a
+nominal 20 Hz (42-byte Flash frame). Subsequently, repeated **GUI**
+downloads showed a frequency reply `14 04 FF FF FF FF`, but still
+retrieved `ChunkLength=42`. One GUI attempt reported `266 BLE
+notifications, 24 Flash, end marker 1`, but no `Saved decoded`
+message was observed. Another attempt continued receiving non-data
+notifications past 50 s with only ~23 Flash notifications. It is
+**unconfirmed** whether the completed GUI attempt hit a decoder
+exception or a UI error; the missing completion print suggests an
+error after transport and before decoded MAT save.
+
+Mitigations in the experimental branch:
+- `pocketlabMemoryProbe` now distinguishes all-`FF` padding from
+  useful Flash data in its progress output and applies a default
+  30-second **MaxPaddingWait_s** threshold even if FF traffic continues.
+  It still retains packets and requires the genuine end marker to mark
+  the download complete; timeout does **not** imply complete data.
+- `pocketlabMemoryDownload` prints the preserved raw file path
+  **before** decoding and explicitly reports the raw file when decoding
+  throws.
+- The MATLAB GUI's **Open MAT (raw/decoded)** can now open the raw
+  `*_raw.mat` capture (`info.RawPackets`) and try the decoder
+  **offline**, without restarting the BLE transfer. On success, it
+  plots channels and saves a distinct
+  `*_raw_recovered_decoded.mat` file without overwriting files.
+  Missing end markers are logged as incomplete even if decoding works.
+- GUI download always reports the intended timestamped raw file
+  path in its event log prior to starting transfer.
+- GUI exceptions now log exception function and line as well as error
+  text to help diagnose an unexpected Flash framing problem.
+
+Smoke-test/recovery workflow after the current GUI download has
+finished or timed out:
+
+```matlab
+repo=gitrepo; pull(repo);
+clear pocketlabMemoryApp pocketlabMemoryProbe pocketlabMemoryDownload
+pocketlabMemoryApp
+```
+
+Use **Open MAT (raw/decoded)** to open the most recent raw MAT file
+rather than repeatedly clicking **Download & Plot**. If decoding fails,
+preserve and share that exact `*_raw.mat` file for diagnosis. Do not
+clear device Memory Mode until its capture is safely backed up.
