@@ -16,6 +16,8 @@ pocketlabMemoryApp
 
 **On later sessions:** just turn on the PocketLab and run `startup`, then `pocketlabMemoryApp`. The driver automatically reuses the saved pairing; you do **not** need to run `pocketlabPair` every time. Re-pair only when you change devices, lose the saved pairing, or cannot reconnect.
 
+The GUI header includes **Check Battery**, which reads the paired Voyager 2 battery percentage on demand using the standard BLE Battery Level characteristic. It is disabled while recording, streaming, or performing another BLE operation; the displayed value is the last measurement, not continuous monitoring.
+
 The `pocketlabMemoryApp` window offers:
 
 | Feature | How to use | Saved file |
