@@ -1,6 +1,12 @@
 function info = pocketlabMemoryStart(Fs,varargin)
 %POCKETLABMEMORYSTART Start a Voyager 2 internal-memory recording.
 %   info = pocketlabMemoryStart(20)
+%   info = pocketlabMemoryStart(20, ...
+%       "Sensors",["acceleration","gyroscope"])
+%
+%   Sensor groups: acceleration, gyroscope, magnetometer, heading,
+%   pitch, roll, quaternion. Default = all seven groups (16 channels).
+%   Sensor-subset Flash recording is EXPERIMENTAL until hardware tested.
 %
 %   Experimental on firmware VP.1.2. Supports the previously observed
 %   20 Hz, 16-channel flash format. Refuses to start when recording data
@@ -10,7 +16,8 @@ function info = pocketlabMemoryStart(Fs,varargin)
 %   This initial non-erasing prototype intentionally omits that operation.
 %   Start-time metadata may be absent in resulting recordings.
 %
-%   Optional: "Address" (BLE address; defaults to paired device).
+%   Optional: "Address" (BLE address; defaults to paired device),
+%             "Sensors" (string array of sensor groups).
 if nargin < 1
     error('Specify the sample rate, e.g. pocketlabMemoryStart(20).');
 end
@@ -20,7 +27,33 @@ if Fs ~= 20
 end
 p=inputParser;
 addParameter(p,'Address',"",@(v)isstring(v)||ischar(v));
+addParameter(p,'Sensors',["acceleration","gyroscope","magnetometer", ...
+    "heading","pitch","roll","quaternion"], ...
+    @(v)isstring(v)||ischar(v)||iscellstr(v));
 parse(p,varargin{:});
+
+sensorNames=lower(strtrim(string(p.Results.Sensors(:).')));
+if isempty(sensorNames) || any(ismissing(sensorNames)) || ...
+        any(strlength(sensorNames)==0) || ...
+        numel(unique(sensorNames))~=numel(sensorNames)
+    error('Sensors must be a nonempty list of distinct names.');
+end
+registry=pocketlabSensorRegistry();
+allowed=["acceleration","gyroscope","magnetometer", ...
+    "heading","pitch","roll","quaternion"];
+if ~all(ismember(sensorNames,allowed))
+    error('Memory recording supports: %s.',strjoin(cellstr(allowed),', '));
+end
+configurationMask=uint32(0);
+for i=1:numel(sensorNames)
+    sensor=registry.(char(sensorNames(i)));
+    configurationMask=bitor(configurationMask,sensor.ConfigValue);
+end
+maskBytes=uint8([ ...
+    bitand(configurationMask,uint32(255)), ...
+    bitand(bitshift(configurationMask,-8),uint32(255)), ...
+    bitand(bitshift(configurationMask,-16),uint32(255)), ...
+    bitand(bitshift(configurationMask,-24),uint32(255))]);
 address=string(p.Results.Address);
 if strlength(address)==0
     folder=fileparts(mfilename('fullpath'));
@@ -47,12 +80,14 @@ if before.Recorded
 end
 
 % Experimental command sequence based on observed browser protocol:
-% sampling instruction 0x00960003 (20 Hz), 16-channel mask 0x0001FFF0.
+% sampling instruction 0x00960003 (20 Hz), selected sensor mask.
+% The 20 Hz instruction/3-samples-per-chunk was captured for 16 channels;
+% subsets may produce a different chunk layout, checked during decode.
 write(tx,uint8([108 1]),"withresponse");
 pause(0.10);
 write(tx,uint8([112 150 0 3 0]),"withresponse");
 pause(0.10);
-write(tx,uint8([110 240 255 1 0]),"withresponse");
+write(tx,uint8([110 maskBytes]),"withresponse");
 pause(0.10);
 write(tx,uint8([96 0]),"withresponse");
 pause(0.10);
@@ -63,13 +98,17 @@ after=localStatus(tx,rx);
 info=struct();
 info.Address=address;
 info.FrequencyHz=20;
-info.ConfigurationMask=uint32(hex2dec('0001FFF0'));
+info.ConfigurationMask=configurationMask;
+info.RequestedSensors=sensorNames;
+info.SensorSubsetVerified=false;
 info.StartCommandSent=true;
 info.StartConfirmed=after.Valid && after.Recording;
 info.StatusBefore=before;
 info.StatusAfter=after;
 info.UserSpaceMetadataWritten=false;
 info.HardwareValidated=false;
+fprintf('Requested sensors: %s | mask: 0x%s\n', ...
+    strjoin(cellstr(sensorNames),', '),dec2hex(configurationMask,8));
 fprintf('Memory START sent. Recording confirmed: %d. Status: %s\n', ...
     info.StartConfirmed,localHex(after.Response));
 if ~info.StartConfirmed
