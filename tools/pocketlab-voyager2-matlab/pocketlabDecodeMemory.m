@@ -15,6 +15,8 @@ function [t,data,meta] = pocketlabDecodeMemory(info,varargin)
 %   hardware sample timestamps. Web-app user-space metadata contains a
 %   possible recording start POSIX time (source unverified).
 %
+%   Each BLE notification may contain multiple packed Flash frames;
+%   splitting uses the measured MemoryChunkResponse/ChunkLength.
 %   Unsupported/ambiguous frames cause an error; no guessing.
 
 validateattributes(info,{'struct'},{'scalar'},mfilename,'info');
@@ -40,8 +42,21 @@ X=zeros(0,0);
 expectedMask=uint32(0);
 selected=[];
 samplesPerPacket=[];
-flashCount=0;
+flashCount=0;           % Logical flash frames, not BLE notifications.
+flashNotifications=0;   % One BLE notification can contain 3 flash frames.
 emptyCount=0;
+
+% RX notifications may pack multiple logical flash frames. On the
+% experimentally verified 6-channel profile, ChunkLength=78, but most RX
+% payloads are 234 bytes = three back-to-back 78-byte flash frames.
+% With 16 channels, ChunkLength=198 and each BLE payload has one frame.
+chunkLength=NaN;
+if isfield(info,'ChunkLength')
+    v=double(info.ChunkLength);
+    if isscalar(v) && isfinite(v) && v>=6 && v==floor(v)
+        chunkLength=v;
+    end
+end
 
 for k=1:numel(info.RawPackets)
     raw=uint8(info.RawPackets{k}(:).');
@@ -50,42 +65,62 @@ for k=1:numel(info.RawPackets)
         emptyCount=emptyCount+1;
         continue
     end
-    if raw(1)~=uint8(150), continue; end  % flash packet 0x96
+    if raw(1)~=uint8(150), continue; end  % flash frame 0x96
+    flashNotifications=flashNotifications+1;
 
-    if numel(raw)<6 || raw(6)~=0
-        error('Flash packet %d has a short header or encoder data.',k);
+    % Without the queried chunk length, do not presume packed framing.
+    if isfinite(chunkLength)
+        frameBytes=chunkLength;
+    else
+        frameBytes=numel(raw);
     end
-    frameMask=localUInt32LE(raw,2);
-    if flashCount==0
-        expectedMask=frameMask;
-        selected=find(bitand(frameMask,masks)==masks);
-        remaining=frameMask;
-        for j=selected
-            remaining=bitxor(remaining,masks(j));
-        end
-        if isempty(selected) || remaining~=0
-            error('Unknown/partial sensor mask: 0x%s.',dec2hex(frameMask,8));
-        end
-        nChannels=sum(widths(selected));
-        X=zeros(0,nChannels);
-    elseif frameMask~=expectedMask
-        error('Flash packet %d has a different sensor mask.',k);
+    if mod(numel(raw),frameBytes)~=0
+        error(['BLE packet %d contains %d bytes, not a multiple of ' ...
+            'flash frame length %d.'],k,numel(raw),frameBytes);
     end
 
-    payload=raw(7:end);
-    bytesPerSample=4*nChannels;
-    if isempty(payload) || mod(numel(payload),bytesPerSample)~=0
-        error('Flash packet %d has invalid payload size %d.',k,numel(payload));
+    for startIndex=1:frameBytes:numel(raw)
+        frame=raw(startIndex:startIndex+frameBytes-1);
+        if numel(frame)<6 || frame(1)~=uint8(150) || frame(6)~=0
+            error('Invalid flash header at BLE packet %d, offset %d.', ...
+                k,startIndex-1);
+        end
+        frameMask=localUInt32LE(frame,2);
+        if flashCount==0
+            expectedMask=frameMask;
+            selected=find(bitand(frameMask,masks)==masks);
+            remaining=frameMask;
+            for j=selected
+                remaining=bitxor(remaining,masks(j));
+            end
+            if isempty(selected) || remaining~=0
+                error('Unknown/partial sensor mask: 0x%s.', ...
+                    dec2hex(frameMask,8));
+            end
+            nChannels=sum(widths(selected));
+            X=zeros(0,nChannels);
+        elseif frameMask~=expectedMask
+            error(['Flash frame %d at BLE packet %d changed sensor mask ' ...
+                'from 0x%s to 0x%s.'],flashCount+1,k, ...
+                dec2hex(expectedMask,8),dec2hex(frameMask,8));
+        end
+
+        payload=frame(7:end);
+        bytesPerSample=4*nChannels;
+        if isempty(payload) || mod(numel(payload),bytesPerSample)~=0
+            error('Flash frame %d in BLE packet %d: invalid %d-byte payload.', ...
+                flashCount+1,k,numel(payload));
+        end
+        values=typecast(payload,'single');
+        [~,~,endianness]=computer;
+        if endianness~='L'
+            values=swapbytes(values);
+        end
+        block=reshape(double(values),nChannels,[]).';
+        X=[X;block]; %#ok<AGROW>
+        flashCount=flashCount+1;
+        samplesPerPacket(end+1,1)=size(block,1); %#ok<AGROW>
     end
-    values=typecast(payload,'single');
-    [~,~,endianness]=computer;
-    if endianness~='L'
-        values=swapbytes(values);
-    end
-    block=reshape(double(values),nChannels,[]).';
-    X=[X;block]; %#ok<AGROW>
-    flashCount=flashCount+1;
-    samplesPerPacket(end+1,1)=size(block,1); %#ok<AGROW>
 end
 
 if flashCount==0
@@ -130,6 +165,21 @@ if isfield(info,'UserSpacePacket')
     end
 end
 
+% The memory frequency query can supply a valid nominal frequency even
+% when the web app user-space metadata is absent (0x95 followed by FF).
+if isfield(info,'MemoryRateValid') && logical(info.MemoryRateValid) && ...
+        isfield(info,'FrequencyInstruction') && ~isfinite(frequencyHz)
+    v=double(info.FrequencyInstruction);
+    if isscalar(v) && isfinite(v) && v>=0 && v<2^32
+        hi=floor(v/65536);
+        lo=mod(v,65536);
+        if hi>0 && lo>0
+            frequencyHz=1000*lo/hi;
+            frequencySource="Device memory frequency instruction (nominal)";
+        end
+    end
+end
+
 if isfinite(rateOverride)
     frequencyHz=rateOverride;
     frequencySource="User-provided FrequencyHz override";
@@ -147,6 +197,8 @@ end
 meta=struct();
 meta.SampleCount=N;
 meta.FlashPacketCount=flashCount;
+meta.BLEFlashNotificationCount=flashNotifications;
+meta.PackedFlashFramesDetected=flashCount>flashNotifications;
 meta.FlashPaddingPacketCount=emptyCount;
 meta.SamplesPerFlashPacket=unique(samplesPerPacket).';
 meta.ConfigurationMask=expectedMask;
