@@ -410,3 +410,47 @@ those 318 samples.
 After pulling the experimental branch, use GUI **Open MAT (raw/decoded)**
 and select the existing `*_raw.mat` to decode and save a separate
 recovered decoded MAT file without Bluetooth.
+
+## GUI Memory Mode elapsed recording clock (Oct 20, 2026)
+
+The GUI now shows two indicators directly under its Memory Mode
+controls:
+
+- **Memory recording: ~MM:SS (PC elapsed)** — updates every ~0.25 seconds
+  via a MATLAB `timer` after a successful GUI **Start Recording**
+  status confirmation, until **Stop Recording** is requested. The frozen
+  interval is displayed as **Last Memory recording: ~MM:SS (PC estimate)**
+  after confirmed Stop.
+- **Downloaded: N samples (~S.S s), complete/INCOMPLETE** — calculated
+  from successfully decoded sample count and *nominal* sampling rate.
+  The GUI still explicitly warns when a download end marker is missing.
+
+**Measurement distinction:** The running timer uses MATLAB's `tic/toc`
+wall-clock interval; it is **not** PocketLab Flash sample timestamps and
+does not query device memory while recording. BLE command/confirmation
+latency, actual sensor update behavior, and differing sample counts
+mean the PC stopwatch and nominal decoded duration may disagree slightly.
+The PC timer does not prove that all samples were stored or downloaded.
+The timer is unavailable for recordings started outside the currently
+open GUI; it then reports **elapsed unknown** rather than inventing a
+duration. A new recording or successful Clear resets the old estimate.
+
+The timer only updates the GUI; no new Bluetooth commands are issued.
+It is stopped/deleted on GUI close to prevent orphaned callbacks.
+The initial build is committed but requires a hardware GUI smoke test.
+
+### Minimal GUI test
+
+```matlab
+repo=gitrepo;
+pull(repo);
+clear pocketlabMemoryApp
+pocketlabMemoryApp
+```
+
+Refresh Status; if an existing recording is present, preserve it and
+only clear after explicitly confirming backups. Select sensors,
+**Start Recording**, watch **Memory recording** count upward,
+**Stop Recording** after roughly 10–15 seconds, then
+**Download & Plot**. Compare the frozen PC elapsed time and decoded
+nominal time; investigate mismatches if completion marker is absent.
