@@ -27,10 +27,16 @@ fprintf("Workspace: %s\n",workspaceRoot);
 fprintf("PocketLab driver added to MATLAB path.\n");
 
 if isfile(driverPairing)
-    fprintf("Pairing: local PocketLab configuration found.\n");
+    fprintf("PocketLab pairing: saved on this computer (no re-pairing needed).\n");
 else
-    fprintf("Pairing: not found; run pocketlabPair before acquisition.\n");
+    fprintf("PocketLab pairing: not found. Run pocketlabPair ONCE on this computer.\n");
 end
+
+fprintf("\nBefore EVERY session: turn on your PocketLab Voyager 2.\n");
+fprintf("Pairing is normally needed only once per computer/device.\n");
+fprintf("Run pocketlabPair again only if you switch sensors,\n");
+fprintf("the saved pairing is missing, or reconnection fails.\n");
+fprintf("Close the PocketLab browser app before connecting with MATLAB.\n");
 
 fprintf("\nRECOMMENDED — PocketLab graphical interface:\n");
 fprintf("  pocketlabMemoryApp\n");
@@ -39,7 +45,7 @@ fprintf("  Memory:    Start Recording / Stop Recording / Download & Plot\n");
 fprintf("  CAUTION:   Clear Device erases PocketLab Flash; back up first.\n");
 
 fprintf("\nOther PocketLab commands:\n");
-fprintf("  pocketlabPair                  %% Pair or select your device\n");
+fprintf("  pocketlabPair                  %% First setup only (or change device)\n");
 fprintf("  pocketlabBattery               %% Check battery\n");
 fprintf('  [t,A] = pocketlabRead("acceleration",10,20);\n');
 fprintf('  [t,data,info] = pocketlabReadMulti(["acceleration","gyroscope"],10,20);\n');

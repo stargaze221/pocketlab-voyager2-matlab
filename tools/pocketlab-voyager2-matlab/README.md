@@ -10,9 +10,11 @@ From the repository root:
 
 ```matlab
 startup
-pocketlabPair          % only when pairing is needed
+pocketlabPair          % ONCE on each computer for this PocketLab
 pocketlabMemoryApp
 ```
+
+**On later sessions:** just turn on the PocketLab and run `startup`, then `pocketlabMemoryApp`. The driver automatically reuses the saved pairing; you do **not** need to run `pocketlabPair` every time. Re-pair only when you change devices, lose the saved pairing, or cannot reconnect.
 
 The `pocketlabMemoryApp` window offers:
 
