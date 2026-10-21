@@ -4,6 +4,12 @@ A MATLAB workspace for **experimental measurement, evidence analysis, and engine
 
 **Start here:** open MATLAB in this repository's root directory, run `startup`, and then launch `pocketlabMemoryApp` for the PocketLab graphical interface.
 
+## MATLAB version and system requirements
+
+- **Recommended MATLAB: R2023b or newer.** The setup/update commands below use MATLAB's built-in `gitclone`, `gitrepo`, and `pull` interfaces, introduced in **R2023b**. [MathWorks: gitclone](https://www.mathworks.com/help/matlab/ref/gitclone.html) · [MathWorks: gitrepo](https://www.mathworks.com/help/matlab/ref/gitrepo.html)
+- **Hardware:** a PocketLab Voyager 2 and a Windows or macOS computer with supported Bluetooth Low Energy (BLE). MATLAB's `ble` interface has been available since R2019b; the Git-based setup commands, rather than BLE itself, set the R2023b recommendation. [MathWorks: ble](https://www.mathworks.com/help/matlab/ref/ble.html)
+- **Compatibility status:** the driver and GUI have **not** been regression-tested on every MATLAB release. An older release might run the acquisition code after obtaining the files through another Git client or a ZIP download, but this is **not a supported or verified workflow**. For course labs, use R2023b+ and test the actual PocketLab connection before class.
+
 ## Quick start
 
 **First time on a computer**
