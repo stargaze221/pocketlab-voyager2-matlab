@@ -327,7 +327,7 @@ if strlength(saveFile)>0
     % Use the same t/data/info layout as multi-sensor GUI captures.
     % Also retain Y for users of the original single-sensor API.
     data = struct();
-    data.(sensorKey) = Y;
+    data.(char(sensorKey)) = Y;
     save(char(saveFile),'t','data','info','Y');
 end
 
