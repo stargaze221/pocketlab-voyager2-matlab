@@ -40,6 +40,7 @@ fprintf("Close the PocketLab browser app before connecting with MATLAB.\n");
 
 fprintf("\nRECOMMENDED — PocketLab graphical interface:\n");
 fprintf("  pocketlabMemoryApp\n");
+fprintf("  Battery:   Check Battery (on-demand percentage in the GUI)\n");
 fprintf("  Real-Time: Start Live + Save / Stop Live (PC .mat file)\n");
 fprintf("  Memory:    Start Recording / Stop Recording / Download & Plot\n");
 fprintf("  CAUTION:   Clear Device erases PocketLab Flash; back up first.\n");
