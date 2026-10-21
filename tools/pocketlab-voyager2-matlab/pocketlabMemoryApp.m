@@ -542,12 +542,18 @@ updateControls();
                         "Quiet",true,"ForceOnline",true, ...
                         "SaveFile",liveFile, ...
                         "OnUpdate",@onLiveUpdate, ...
-                        "ShouldStop",@()liveStopRequested, ...
+                        "ShouldStop",@shouldStopLive, ...
                         "UpdateInterval_s",0.25);
                     liveRunning = false;
                     updatePlotChoices();
                     addLog("LIVE saved: "+string(liveFile)+ ...
                         " | "+numel(lastTime)+" samples");
+                    if isfield(lastDownloadInfo,'StoppedByUser') && ...
+                            lastDownloadInfo.StoppedByUser
+                        addLog("LIVE stopped by Stop Live button.");
+                    else
+                        addLog("LIVE reached max duration (or stop not observed).");
+                    end
                     if lastDownloadInfo.SampleCount==0
                         uialert(fig, ...
                             ['No sample blocks were decoded from live BLE packets. ' ...
@@ -643,6 +649,13 @@ updateControls();
         updateControls();
     end
 
+    function shouldStop = shouldStopLive()
+        % A nested function reads the CURRENT shared GUI state.
+        % @()liveStopRequested captured the initial false value when the
+        % stream started, so Stop Live could not terminate the loop.
+        shouldStop = liveStopRequested;
+    end
+
     function onLiveUpdate(tNow,dataNow)
         % Display only — the streaming driver owns the actual buffers and
         % saves the full acquisition after normal completion/Stop Live.
@@ -703,7 +716,12 @@ updateControls();
             xlabel(plotAxes,'Sample index');
         end
         ylabel(plotAxes,[key ' (native units unless verified)']);
-        title(plotAxes,[key ' — Memory Mode']);
+        if liveRunning || (isfield(lastDownloadInfo,'StoppedByUser') && ...
+                ~isfield(lastDownloadInfo,'Decoding'))
+            title(plotAxes,[key ' — Real-Time Mode']);
+        else
+            title(plotAxes,[key ' — Memory Mode']);
+        end
         grid(plotAxes,'on');
         if size(values,2)==3
             legend(plotAxes,{'X','Y','Z'},'Location','best');
