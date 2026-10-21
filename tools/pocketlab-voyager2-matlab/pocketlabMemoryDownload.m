@@ -15,11 +15,13 @@ function [t,data,info] = pocketlabMemoryDownload(varargin)
 %   It does NOT erase stored recordings. Nominal Fs=20 Hz unless supplied
 %   otherwise; sample times are NOT hardware timestamps.
 %
-%   Options: "Address", "FilePrefix", "MaxDuration_s", "Sensors".
+%   Options: "Address", "FilePrefix", "MaxDuration_s", "Sensors",
+%            "WarnOnIncomplete" (default true; GUI can show its own alert).
 p=inputParser;
 addParameter(p,'Address',"",@(v)isstring(v)||ischar(v));
 addParameter(p,'FilePrefix',"",@(v)isstring(v)||ischar(v));
 addParameter(p,'MaxDuration_s',180,@(v)isnumeric(v)&&isscalar(v)&&isfinite(v)&&v>0);
+addParameter(p,'WarnOnIncomplete',true,@(v)islogical(v)&&isscalar(v));
 addParameter(p,'Sensors',strings(1,0), ...
     @(v)isstring(v)||ischar(v)||iscellstr(v));
 parse(p,varargin{:});
@@ -37,7 +39,8 @@ end
 
 probeInfo=pocketlabMemoryProbe("download", ...
     "Address",address,"SaveFile",rawFile, ...
-    "MaxDuration_s",p.Results.MaxDuration_s);
+    "MaxDuration_s",p.Results.MaxDuration_s, ...
+    "WarnOnIncomplete",false); % Warn once at this public API level.
 
 % Raw MAT is already saved by the transport stage. Make that visible
 % BEFORE decoding, which can fail for unrecognized sensor framing.
@@ -76,6 +79,7 @@ info.SensorSaveFilterApplied=~isempty(requested);
 info.RawFile=string(rawFile);
 info.DecodedFile=string(decodedFile);
 info.DownloadComplete=probeInfo.EndMarkerSeen;
+info.DownloadStopReason=probeInfo.DownloadStopReason;
 info.HardwareSampleTimestampsVerified=false;
 save(decodedFile,'t','data','info');
 
@@ -85,7 +89,14 @@ fprintf('Decoded samples: %d | nominal rate: %g Hz\n', ...
     numel(t),decodeMeta.NominalFrequencyHz);
 fprintf('Saved sensor groups: %s\n',strjoin(cellstr(info.SavedSensors),', '));
 if ~info.DownloadComplete
-    warning('PocketLab:IncompleteMemoryDownload', ...
-        'Download completion was not confirmed. Inspect raw capture.');
+    if p.Results.WarnOnIncomplete
+        warning('PocketLab:IncompleteMemoryDownload', ...
+            ['Download is unconfirmed (reason: %s, %d Flash packets). ' ...
+             'Raw and decoded MAT files were saved; inspect capture.'], ...
+             probeInfo.DownloadStopReason,probeInfo.FlashPacketCount);
+    else
+        fprintf(['NOTICE: End marker absent (%s). MAT files saved; ' ...
+            'completion remains unconfirmed.\n'],probeInfo.DownloadStopReason);
+    end
 end
 end
