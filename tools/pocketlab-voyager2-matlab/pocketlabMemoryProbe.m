@@ -11,7 +11,7 @@ function info = pocketlabMemoryProbe(mode,varargin)
 %  The download preserves raw packets. It does not interpret sample times
 %  as hardware timestamps and NEVER sends the memory erase command 4C 97.
 %
-%  Options: "Address", "SaveFile", "MaxDuration_s", "MaxPackets", "Quiet".
+%  Options: "Address", "SaveFile", "MaxDuration_s", "IdleTimeout_s", "MaxPackets", "Quiet".
 %  Disconnect PocketLab Notebook before using this function.
 
 if nargin<1 || strlength(string(mode))==0
@@ -26,6 +26,7 @@ p=inputParser;
 addParameter(p,'Address',"",@(x)ischar(x)||isstring(x));
 addParameter(p,'SaveFile',"",@(x)ischar(x)||isstring(x));
 addParameter(p,'MaxDuration_s',180,@(x)isnumeric(x)&&isscalar(x)&&isfinite(x)&&x>0);
+addParameter(p,'IdleTimeout_s',15,@(x)isnumeric(x)&&isscalar(x)&&isfinite(x)&&x>0);
 addParameter(p,'MaxPackets',10000,@(x)isnumeric(x)&&isscalar(x)&&isfinite(x)&&x>=1&&x==floor(x));
 addParameter(p,'Quiet',false,@(x)islogical(x)||isnumeric(x));
 parse(p,varargin{:});
@@ -186,12 +187,25 @@ packetLengths=zeros(0,1);
 flashCount=0;
 complete=false;
 downloadClock=tic;
+lastPacketClock=tic;
+lastProgressClock=tic;
+idleTimedOut=false;
 while toc(downloadClock)<p.Results.MaxDuration_s && ...
       numel(rawPackets)<p.Results.MaxPackets
+    if toc(lastPacketClock)>=p.Results.IdleTimeout_s
+        idleTimedOut=true;
+        break
+    end
+    if ~quiet && toc(lastProgressClock)>5
+        fprintf('Downloading memory: %d packets, %d flash (%.1f s elapsed)\n', ...
+            numel(rawPackets),flashCount,toc(downloadClock));
+        lastProgressClock=tic;
+    end
     try
         [packet,stamp]=read(rx);
         raw=uint8(packet(:).');
         if isempty(raw), continue; end
+        lastPacketClock=tic;
         rawPackets{end+1,1}=raw; %#ok<AGROW>
         packetTimes(end+1,1)=stamp; %#ok<AGROW>
         packetLengths(end+1,1)=numel(raw); %#ok<AGROW>
@@ -214,14 +228,21 @@ info.PacketTimestamps=packetTimes;
 info.PacketLengths=packetLengths;
 info.FlashPacketCount=flashCount;
 info.EndMarkerSeen=complete;
+info.IdleTimedOut=idleTimedOut;
 info.AcquisitionElapsed_s=toc(downloadClock);
 if ~quiet
     fprintf('Memory raw download: %d packets (%d flash), end marker: %d\n', ...
         numel(rawPackets),flashCount,complete);
 end
 if ~complete
-    warning('PocketLab:MemoryDownloadIncomplete', ...
-        'End marker not observed. Raw data saved, but download may be incomplete.');
+    if idleTimedOut
+        warning('PocketLab:MemoryDownloadIdle', ...
+            'No BLE packets for %.0f s; stopped waiting. Received %d flash packets.', ...
+            p.Results.IdleTimeout_s,flashCount);
+    else
+        warning('PocketLab:MemoryDownloadIncomplete', ...
+            'End marker not observed. Download may be incomplete.');
+    end
 end
 
 % Cleanup puts device back online and unsubscribes. No erase is sent.
