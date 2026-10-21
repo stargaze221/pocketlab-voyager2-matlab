@@ -22,7 +22,7 @@ The `pocketlabMemoryApp` window offers:
 
 | Feature | How to use | Saved file |
 | --- | --- | --- |
-| **Real-Time streaming** | Select at least two sensor groups, **Start Live + Save**, then **Stop Live** (or let max duration expire). | `*_live.mat` |
+| **Real-Time streaming** | Select **one or more** sensor groups, **Start Live + Save**, then **Stop Live** (or let max duration expire). One selected sensor uses `pocketlabRead`; multiple sensors use `pocketlabReadMulti`. | `*_live.mat` |
 | **Device Memory Mode** | **Refresh Status**, select sensors, **Start Recording**, **Stop Recording**, **Download & Plot**. | `*_raw.mat`, `*_decoded.mat` |
 | **Offline review** | **Open MAT (raw/decoded)** | Reads an existing capture; may save a recovered decoded MAT file. |
 
