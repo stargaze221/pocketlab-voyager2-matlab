@@ -291,15 +291,14 @@ info.SynchronizationIsVerified=false;
 info.AssumedFrame="6-byte header, then ordered float32 sensor values";
 info.SaveFile=saveFile;
 
+% Only warn when there is an actual acquisition/decoding concern.
+% Experimental validation status stays in info.DecodingIsVerified and in
+% the driver documentation; it is not a per-run warning.
 if decodePacked && decodedPackets==0
     warning('PocketLab:UnrecognizedMultiPackets', ...
         ['No packets matched the assumed combined format. ' ...
         'Inspect info.PacketLengths and info.RawPackets. ' ...
         'Do NOT interpret empty results as missing sensor motion.']);
-elseif decodePacked && ~validatedConfiguration
-    warning('PocketLab:UnverifiedMultiDecode', ...
-        ['%d packet(s) structurally decoded. This sensor configuration ' ...
-        'has not been physically validated; timing is nominal.'],decodedPackets);
 end
 
 if strlength(saveFile)>0
