@@ -277,3 +277,53 @@ Initial GUI safety behaviors:
 sensor subsets have been physically tested. **This GUI itself has not
 yet been run in the user's MATLAB session**, so UI layout and callback
 compatibility need one smoke test before use by students.
+
+## Real-Time live plotting + local recording in the same MATLAB GUI
+
+The app `pocketlabMemoryApp` now has a separate **Real-Time Mode**
+panel beside the existing device-internal Memory Mode controls.
+
+- **Start Live + Save** calls the established BLE `pocketlabReadMulti`
+  streamer and plots incoming decoded samples as they arrive, updating
+  at about 4 Hz. The plot displays the most recent 20 s while running.
+- **Stop Live** sets a stop flag, handled by the streamer's optional
+  `ShouldStop` callback; normal return disables sensor streaming,
+  unsubscribes RX, and saves the complete acquisition to
+  `<prefix>_live.mat`. The live max-duration spinner defaults to 30 s
+  as a fallback if the user does not press Stop.
+- **Real-Time and Memory Mode are mutually exclusive.** The GUI disables
+  Memory controls while live streaming; live streaming cannot start when
+  last-confirmed memory status is Recording. When changing from Memory
+  Mode, the GUI requests online BLE mode explicitly using `6C 00`.
+- Live mode currently requires **at least two** selected sensor groups
+  because the established multi-sensor driver takes 2+. Start by
+  selecting **Acceleration + Gyroscope** at nominal 20 Hz; their
+  streaming combination has been previously exercised on hardware.
+  Other combinations remain experimental.
+- New `pocketlabReadMulti` optional arguments (defaults preserve the
+  existing behavior): `OnUpdate=@(t,data)...`,
+  `ShouldStop=@()...`, `UpdateInterval_s=0.25`,
+  `ForceOnline=true/false`.
+- The live plot's x-axis is **nominal sensor sample time** reconstructed
+  from the configured frequency, not BLE packet arrival timestamps.
+  Saving live data to the PC does not imply writing it into PocketLab
+  on-board Flash.
+
+### Initial GUI smoke test (hardware still pending)
+
+```matlab
+repo=gitrepo;
+pull(repo);
+clear pocketlabMemoryApp pocketlabReadMulti
+pocketlabMemoryApp
+```
+
+Disconnect the browser PocketLab app, press **Refresh Status**, keep
+Acceleration + Gyroscope checked, press **Start Live + Save**, move the
+sensor, and press **Stop Live** after ~5 s. Confirm a
+`pocketlab_live_YYYYMMDD_HHMMSS_live.mat` file exists and the graph
+updated *during* the acquisition. If the GUI reports a MATLAB error,
+save the stack trace and do not overwrite successful capture files.
+
+The streaming GUI callback path has not yet been physically exercised
+and needs a user-side smoke test.
