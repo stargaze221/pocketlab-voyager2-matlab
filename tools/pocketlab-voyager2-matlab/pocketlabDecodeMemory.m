@@ -1,0 +1,270 @@
+function [t,data,meta] = pocketlabDecodeMemory(info,varargin)
+%POCKETLABDECODEMEMORY Decode recorded Voyager 2 standard-sensor flash.
+%
+%   [t,data,meta] = pocketlabDecodeMemory(info)
+%   [t,data,meta] = pocketlabDecodeMemory(info,"FrequencyHz",20)
+%
+%   Pass the info struct from pocketlabMemoryProbe("download") or from a
+%   saved raw .mat file. This decoder NEVER accesses the BLE device.
+%
+%   Flash framing confirmed by a real VP.1.2 recording:
+%     0x96 + uint32 LE sensor mask + uint8 encoder-count (zero here)
+%     + contiguous little-endian IEEE754 float32 standard-sensor values.
+%
+%   Time stamps are reconstructed from the NOMINAL sampling rate, NOT from
+%   hardware sample timestamps. Web-app user-space metadata contains a
+%   possible recording start POSIX time (source unverified).
+%
+%   Each BLE notification may contain multiple packed Flash frames;
+%   splitting uses the measured MemoryChunkResponse/ChunkLength.
+%   Fully 0xFF logical flash frames are padding. They may appear at the
+%   end of a 210-byte BLE notification when fewer than five 42-byte
+%   logical frames remain. Only complete all-FF frames are skipped;
+%   malformed or partially padded frames are errors.
+
+validateattributes(info,{'struct'},{'scalar'},mfilename,'info');
+if ~isfield(info,'RawPackets') || ~iscell(info.RawPackets)
+    error('info.RawPackets must be a cell array of BLE payloads.');
+end
+
+parser=inputParser;
+addParameter(parser,'FrequencyHz',NaN, ...
+    @(x)isnumeric(x)&&isscalar(x)&&(isnan(x)||(isfinite(x)&&x>0)));
+parse(parser,varargin{:});
+rateOverride=double(parser.Results.FrequencyHz);
+
+% Sort groups by their configuration bit positions, matching the
+% observed float32 ordering in device Flash frames.
+% Environmental/light/rangefinder memory formats are newly added and
+% remain hardware-unverified; unknown masks still cause hard errors.
+names={'acceleration','gyroscope','magnetometer', ...
+    'heading','pitch','roll','quaternion', ...
+    'temperature','pressure','humidity','altitude','dewpoint', ...
+    'heatindex','rangefinder','uvlight','ambientlight','irlight'};
+masks=uint32([112 896 7168 8192 16384 32768 65536 ...
+    262144 524288 1048576 2097152 4194304 8388608 ...
+    16777216 33554432 67108864 134217728]);
+widths=[3 3 3 1 1 1 4 1 1 1 1 1 1 1 1 1 1];
+labelNames={'acc_x','acc_y','acc_z','gyro_x','gyro_y','gyro_z', ...
+    'mag_x','mag_y','mag_z','heading','pitch','roll', ...
+    'q1','q2','q3','q4'};
+
+X=zeros(0,0);
+expectedMask=uint32(0);
+selected=[];
+samplesPerPacket=[];
+flashCount=0;           % Logical flash frames, not BLE notifications.
+flashNotifications=0;   % One BLE notification can contain 3 flash frames.
+emptyCount=0;
+paddedLogicalFrames=0;
+paddingStarted=false;
+
+% RX notifications may pack multiple logical flash frames. On the
+% experimentally verified 6-channel profile, ChunkLength=78, but most RX
+% payloads are 234 bytes = three back-to-back 78-byte flash frames.
+% With 16 channels, ChunkLength=198 and each BLE payload has one frame.
+chunkLength=NaN;
+if isfield(info,'ChunkLength')
+    v=double(info.ChunkLength);
+    if isscalar(v) && isfinite(v) && v>=6 && v==floor(v)
+        chunkLength=v;
+    end
+end
+
+for k=1:numel(info.RawPackets)
+    raw=uint8(info.RawPackets{k}(:).');
+    if isempty(raw), continue; end
+    if all(raw==uint8(255))
+        emptyCount=emptyCount+1;
+        continue
+    end
+    if raw(1)~=uint8(150), continue; end  % flash frame 0x96
+    flashNotifications=flashNotifications+1;
+
+    % Without the queried chunk length, do not presume packed framing.
+    if isfinite(chunkLength)
+        frameBytes=chunkLength;
+    else
+        frameBytes=numel(raw);
+    end
+    if mod(numel(raw),frameBytes)~=0
+        error(['BLE packet %d contains %d bytes, not a multiple of ' ...
+            'flash frame length %d.'],k,numel(raw),frameBytes);
+    end
+
+    for startIndex=1:frameBytes:numel(raw)
+        frame=raw(startIndex:startIndex+frameBytes-1);
+        % Confirmed from a real 20 Hz roll/pitch/heading capture:
+        % final 210-byte notification contained one 42-byte 0x96 frame,
+        % followed by four 42-byte blocks of 0xFF padding. Previously
+        % these triggered an invalid-header error despite a valid end marker.
+        if all(frame==uint8(255))
+            paddedLogicalFrames=paddedLogicalFrames+1;
+            paddingStarted=true;
+            continue
+        end
+        % Do not silently tolerate gaps inside a purported data stream.
+        if paddingStarted
+            error(['Non-padding flash frame after FF padding at BLE ' ...
+                'packet %d, offset %d.'],k,startIndex-1);
+        end
+        if numel(frame)<6 || frame(1)~=uint8(150) || frame(6)~=0
+            error('Invalid flash header at BLE packet %d, offset %d.', ...
+                k,startIndex-1);
+        end
+        frameMask=localUInt32LE(frame,2);
+        if flashCount==0
+            expectedMask=frameMask;
+            selected=find(bitand(frameMask,masks)==masks);
+            remaining=frameMask;
+            for j=selected
+                remaining=bitxor(remaining,masks(j));
+            end
+            if isempty(selected) || remaining~=0
+                error('Unknown/partial sensor mask: 0x%s.', ...
+                    dec2hex(frameMask,8));
+            end
+            nChannels=sum(widths(selected));
+            X=zeros(0,nChannels);
+        elseif frameMask~=expectedMask
+            error(['Flash frame %d at BLE packet %d changed sensor mask ' ...
+                'from 0x%s to 0x%s.'],flashCount+1,k, ...
+                dec2hex(expectedMask,8),dec2hex(frameMask,8));
+        end
+
+        payload=frame(7:end);
+        bytesPerSample=4*nChannels;
+        if isempty(payload) || mod(numel(payload),bytesPerSample)~=0
+            error('Flash frame %d in BLE packet %d: invalid %d-byte payload.', ...
+                flashCount+1,k,numel(payload));
+        end
+        values=typecast(payload,'single');
+        [~,~,endianness]=computer;
+        if endianness~='L'
+            values=swapbytes(values);
+        end
+        block=reshape(double(values),nChannels,[]).';
+        X=[X;block]; %#ok<AGROW>
+        flashCount=flashCount+1;
+        samplesPerPacket(end+1,1)=size(block,1); %#ok<AGROW>
+    end
+end
+
+if flashCount==0
+    error('No standard-sensor flash packets (0x96) were found.');
+end
+if any(~isfinite(X(:)))
+    warning('PocketLab:NonfiniteMemorySamples', ...
+        'Some decoded sensor values are nonfinite.');
+end
+
+data=struct();
+columns=0;
+for j=selected
+    n=widths(j);
+    data.(names{j})=X(:,columns+(1:n));
+    columns=columns+n;
+end
+
+% User-space metadata: 0x95, uint32 LE signature=1638, four uint32 words.
+userWords=nan(1,4);
+userTimeUTC=NaT;
+userTimeUTC.TimeZone='UTC';
+frequencyIndex=NaN;
+frequencySource="Unresolved";
+frequencyHz=NaN;
+if isfield(info,'UserSpacePacket')
+    u=uint8(info.UserSpacePacket(:).');
+    if numel(u)>=21 && u(1)==uint8(149) && localUInt32LE(u,2)==1638
+        for j=1:4
+            userWords(j)=double(localUInt32LE(u,6+4*(j-1)));
+        end
+        frequencyIndex=userWords(3);
+        nominalRates=[1/60 1/30 1/15 1/10 1/5 1 5 10 20 25 50 250];
+        if frequencyIndex>=0 && frequencyIndex<numel(nominalRates) && ...
+                frequencyIndex==floor(frequencyIndex)
+            frequencyHz=nominalRates(frequencyIndex+1);
+            frequencySource="User-space field 3 (inferred web-app rate index)";
+        end
+        if userWords(4)>0
+            userTimeUTC=datetime(userWords(4),'ConvertFrom','posixtime','TimeZone','UTC');
+        end
+    end
+end
+
+% The memory frequency query can supply a valid nominal frequency even
+% when the web app user-space metadata is absent (0x95 followed by FF).
+if isfield(info,'MemoryRateValid') && logical(info.MemoryRateValid) && ...
+        isfield(info,'FrequencyInstruction') && ~isfinite(frequencyHz)
+    v=double(info.FrequencyInstruction);
+    if isscalar(v) && isfinite(v) && v>=0 && v<2^32
+        hi=floor(v/65536);
+        lo=mod(v,65536);
+        if hi>0 && lo>0
+            frequencyHz=1000*lo/hi;
+            frequencySource="Device memory frequency instruction (nominal)";
+        end
+    end
+end
+
+if isfinite(rateOverride)
+    frequencyHz=rateOverride;
+    frequencySource="User-provided FrequencyHz override";
+end
+
+N=size(X,1);
+if isfinite(frequencyHz)
+    t=(0:N-1).'/frequencyHz;
+else
+    t=nan(N,1);
+    warning('PocketLab:UnknownMemoryRate', ...
+        'No recognized nominal rate: t set to NaN; provide "FrequencyHz".');
+end
+
+meta=struct();
+meta.SampleCount=N;
+meta.FlashPacketCount=flashCount;
+meta.BLEFlashNotificationCount=flashNotifications;
+meta.PackedFlashFramesDetected=flashCount>flashNotifications;
+meta.FlashPaddingPacketCount=emptyCount;
+meta.PaddedLogicalFlashFrameCount=paddedLogicalFrames;
+meta.SamplesPerFlashPacket=unique(samplesPerPacket).';
+meta.ConfigurationMask=expectedMask;
+meta.ChannelNames=labelNames(1:0);
+meta.EnvironmentalMemoryMappingVerified=false;
+for j=selected
+    switch names{j}
+        case {'acceleration','gyroscope','magnetometer'}
+            switch names{j}
+                case 'acceleration', labels={'acc_x','acc_y','acc_z'};
+                case 'gyroscope', labels={'gyro_x','gyro_y','gyro_z'};
+                otherwise, labels={'mag_x','mag_y','mag_z'};
+            end
+        case 'quaternion', labels={'q1','q2','q3','q4'};
+        otherwise, labels=names(j);
+    end
+    meta.ChannelNames=[meta.ChannelNames labels]; %#ok<AGROW>
+end
+meta.NominalFrequencyHz=frequencyHz;
+meta.FrequencySource=frequencySource;
+meta.FrequencyIndexFromUserSpace=frequencyIndex;
+meta.UserSpaceWords=userWords;
+meta.UserSpaceTimeUTC=userTimeUTC;
+meta.UserSpaceTimeInterpretation="Possible app-supplied recording time; origin unverified";
+meta.SampleTimesAreNominal=true;
+meta.HardwareSampleTimestampsVerified=false;
+if isfinite(frequencyHz)
+    meta.NominalRecordDuration_s=N/frequencyHz;
+else
+    meta.NominalRecordDuration_s=NaN;
+end
+if isfield(data,'quaternion')
+    qnorm=sqrt(sum(data.quaternion.^2,2));
+    meta.QuaternionNormMean=mean(qnorm);
+end
+end
+
+function value=localUInt32LE(bytes,startIndex)
+b=uint32(bytes(startIndex:startIndex+3));
+value=b(1)+bitshift(b(2),8)+bitshift(b(3),16)+bitshift(b(4),24);
+end

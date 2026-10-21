@@ -14,6 +14,14 @@ function [t,data,info] = pocketlabReadMulti(sensorNames,recordTime,Fs,varargin)
 %     "Quiet"        true/false (default false)
 %     "SaveFile"     full/relative .mat path for raw capture (default "")
 %     "DecodePacked" true/false (default true); false = raw probe only
+%     "OnUpdate"    callback @(t,data) for live plotting (default [])
+%     "ShouldStop"  callback @() logical for early stop (default [])
+%     "UpdateInterval_s" minimum callback interval (default 0.25)
+%     "ForceOnline" issue 6C 00 before streaming (default false)
+%
+%   With OnUpdate/ShouldStop, data continue to be saved to SaveFile on
+%   ordinary early stop. Live plotting uses nominal time, not device-side
+%   sample timestamps. Memory Mode and streaming must NOT run together.
 %
 %   PHYSICAL VALIDATION: Acceleration + gyroscope at 20 Hz has been
 %   checked on Voyager 2 hardware using stationary, dynamic, and
@@ -67,11 +75,19 @@ addParameter(p,'Address',"",@(x)ischar(x)||isstring(x));
 addParameter(p,'Quiet',false,@(x)islogical(x)||isnumeric(x));
 addParameter(p,'SaveFile',"",@(x)ischar(x)||isstring(x));
 addParameter(p,'DecodePacked',true,@(x)islogical(x)||isnumeric(x));
+addParameter(p,'OnUpdate',[],@(x)isempty(x)||isa(x,'function_handle'));
+addParameter(p,'ShouldStop',[],@(x)isempty(x)||isa(x,'function_handle'));
+addParameter(p,'UpdateInterval_s',0.25,@(x)isnumeric(x)&&isscalar(x)&&isfinite(x)&&x>=0.1);
+addParameter(p,'ForceOnline',false,@(x)islogical(x)&&isscalar(x));
 parse(p,varargin{:});
 address=string(p.Results.Address);
 quiet=logical(p.Results.Quiet);
 saveFile=string(p.Results.SaveFile);
 decodePacked=logical(p.Results.DecodePacked);
+onUpdate=p.Results.OnUpdate;
+shouldStop=p.Results.ShouldStop;
+updateInterval_s=p.Results.UpdateInterval_s;
+forceOnline=p.Results.ForceOnline;
 
 if strlength(address)==0
     driverDir=fileparts(mfilename('fullpath'));
@@ -128,6 +144,12 @@ subscribe(rx);
 cleanupObj=onCleanup(@() localCleanup(tx,rx));
 pause(0.15);
 
+% Explicitly request streaming/online transport only when the caller
+% opts in (e.g. GUI live mode after a previous offline memory session).
+if forceOnline
+    write(tx,uint8([108 0]),"withresponse");
+    pause(0.10);
+end
 write(tx,uint8([hex2dec('60') hex2dec('01')]),"withresponse");
 pause(0.10);
 % A single combined enable request replaces the single-sensor command.
@@ -142,7 +164,22 @@ if ~quiet
     fprintf('Recording: [%s] %3d%% | %d / %g s',repmat('-',1,20),0,0,recordTime);
 end
 startClock=tic;
+lastUpdateClock=tic;
+lastUICheckClock=tic;
+stopRequested=false;
 while toc(startClock)<recordTime
+    % drawnow pumps the UI event queue so Stop Live can set its flag even
+    % while acquisition runs in the Start Live button callback.
+    if ~isempty(shouldStop)
+        if toc(lastUICheckClock)>=0.10
+            drawnow limitrate;
+            lastUICheckClock=tic;
+        end
+        if logical(shouldStop())
+            stopRequested=true;
+            break
+        end
+    end
     if ~quiet
         elapsedProgress=min(recordTime,toc(startClock));
         progressSecond=floor(elapsedProgress);
@@ -177,6 +214,19 @@ while toc(startClock)<recordTime
                 firstColumn=firstColumn+n;
             end
             decodedPackets=decodedPackets+1;
+            if ~isempty(onUpdate) && toc(lastUpdateClock)>=updateInterval_s
+                count=size(data.(char(sensorNames(1))),1);
+                tPreview=(0:count-1)'/Fs;
+                try
+                    onUpdate(tPreview,data);
+                catch displayError
+                    warning('PocketLab:LiveDisplayError', ...
+                        'Live display callback failed: %s. Acquisition continues.', ...
+                        displayError.message);
+                    onUpdate=[];  % Never discard sensor capture due to UI.
+                end
+                lastUpdateClock=tic;
+            end
         else
             undecodedPackets=undecodedPackets+1;
         end
@@ -191,6 +241,17 @@ while toc(startClock)<recordTime
     end
 end
 elapsed_s=toc(startClock);
+% Always publish the final decoded data once (including early stop).
+if ~isempty(onUpdate) && decodePacked
+    count=size(data.(char(sensorNames(1))),1);
+    try
+        onUpdate((0:count-1)'/Fs,data);
+    catch displayError
+        warning('PocketLab:LiveDisplayError', ...
+            'Final live display failed: %s. Capture can still be saved.', ...
+            displayError.message);
+    end
+end
 if ~quiet
     fprintf('\rRecording: [%s] 100%% | %g / %g s\n',repmat('#',1,20),recordTime,recordTime);
 end
@@ -214,6 +275,7 @@ info.Command=enableCommand;
 info.RequestedRate_Hz=Fs;
 info.RequestedTime_s=recordTime;
 info.AcquisitionElapsed_s=elapsed_s;
+info.StoppedByUser=stopRequested;
 info.PacketCount=numel(rawPackets);
 info.PacketLengths=packetLengths;
 info.PacketTimestamps=packetTimes;

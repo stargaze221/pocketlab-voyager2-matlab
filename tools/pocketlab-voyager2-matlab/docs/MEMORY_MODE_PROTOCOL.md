@@ -1,0 +1,456 @@
+# Voyager 2 Memory Mode: experimental MATLAB investigation
+
+**Target:** PocketLab Voyager 2, firmware VP.1.2, hardware VP.2.1.
+
+**Branch:** `experimental/memory-mode-protocol`. Production real-time streaming in `main` is unchanged.
+
+## Evidence from PocketLab Notebook
+
+The user's Edge console and the PocketLab Notebook JS bundle (`voyagerpro` device entry) identify the following commands via the same custom TX/RX characteristics used for streaming:
+
+| Purpose | TX bytes (hex) | Evidence |
+|---|---|---|
+| Read status | `23` | JS `memoryStatusCommand: [35]`; sends twice and reads RX, status flags at RX byte 3 |
+| Enter offline mode | `6C 01` | JS `_offlineModeCommand: [108,1]`; observed |
+| Return online | `6C 00` | JS `_onlineModeCommand: [108,0]`; observed |
+| Read memory frequency instruction | `29` | JS `_readFrequencyInstructionCommand=41`; observed |
+| Read memory chunk length | `27` | JS `_readChunkLengthCommand=39`; observed |
+| Download user-space metadata | `4C 81` | JS `_readUserSpaceCommand=[76,129]`; observed |
+| Download flash memory data | `4C 76` | JS `downloadFromMemoryCommand=[76,118]`; observed |
+| Start memory recording | `6A 01` | JS device entry; **not yet tested through MATLAB** |
+| Stop memory recording | `6A 00` | JS device entry; **not yet tested through MATLAB** |
+| **Erase flash** | **`4C 97`** | JS `clearMemoryCommand=[76,151]`; **never used by this prototype** |
+
+BLE service: `152FDEA4-28A1-11ED-A261-0242AC120002`
+
+TX characteristic: `152FDEA5-28A1-11ED-A261-0242AC120002`
+
+RX characteristic: `152FDEA6-28A1-11ED-A261-0242AC120002`
+
+### Memory transport structure
+
+- Flash packets start with `0x96` (150 decimal).
+- A memory data packet begins with a 1-byte packet ID, 4-byte little-endian sensor selection mask, and 1-byte encoder sample count.
+- Non-encoder samples are little-endian IEEE-754 float32 values. No device-side clock value was identified for the standard IMU samples.
+- The official JS reconstructs intra-chunk time from the configured frequency instruction, *not* a per-sample hardware timestamp.
+- Completion is signaled by packet ID `0x11` (17 decimal) with bit `0x10` set in its third byte.
+- Optional user-space metadata starts with `0x95` (149 decimal).
+- Example observed: frequency response `14 04 96 00 03 00` gives instruction `0x00960003` = 9830403. The JS interprets the upper 16 bits as 150 ms per chunk and the lower 16 bits as 3 samples, i.e., **nominal** 20 Hz.
+- Example observed chunk length: 198 bytes.
+- The JS lists `maxNumBLEPayloadBytes=244`. Actual framing must still be confirmed on VP.1.2 hardware.
+
+## MATLAB probe (not yet hardware tested)
+
+Disconnect the PocketLab Notebook web app. For a non-modifying status read:
+
+```matlab
+info = pocketlabMemoryProbe("status");
+disp(info.MemoryState)
+disp(info.StatusResponse)
+```
+
+Only after status read succeeds, test raw download:
+
+```matlab
+info = pocketlabMemoryProbe("download", ...
+    "SaveFile","voyager_memory_raw.mat", ...
+    "MaxDuration_s",180);
+disp([info.FlashPacketCount info.EndMarkerSeen])
+```
+
+The function retains each RX notification and the MATLAB host receive time. It **does not** erase memory, start a new recording, silently convert incoming raw bytes to physical units, or claim verified hardware timing.
+
+Do not run this prototype at the same time as `pocketlabReadMulti` or the official web app. If an incomplete-download warning occurs, preserve the .mat file and check PacketLengths/RawPackets before changing control logic. Record firmware version with any test results.
+
+## Validation checklist
+
+- [ ] Status reply returns the known `Recorded` state for a device with data in memory.
+- [ ] Frequency reply and chunk length agree with an official-app reference capture.
+- [ ] Flash packet type `0x96` appears and some raw packets are collected.
+- [ ] Download-complete marker `0x11` and bit `0x10` is detected.
+- [ ] A repeat official-app download still works; no data were erased.
+- [ ] Decode channels/masks and compare physical waveforms.
+- [ ] Determine what timing is reconstructed versus transmitted by the device.
+
+**Scope:** The sample-time values recovered from the instruction describe requested/nominal sample spacing. They cannot by themselves establish hardware clock drift or sampling jitter.
+
+## Hardware test: VP.1.2 raw memory capture (October 20, 2026)
+
+Observed in MATLAB:
+- `pocketlabMemoryProbe("status")`: `11 01 01` → Recorded.
+- Raw download: **278 notifications**, including 152 flash packets (`0x96`), 125 full-size all-`FF` packets, one 195-byte all-`FF` packet, and one 3-byte end marker `11 01 11`.
+- All 152 flash packets had size **198 bytes**, identical little-endian sensor mask `0x0001FFF0`, and zero encoder samples. Each contained **3 samples × 16 float32 channels** after a 6-byte header, yielding **456 samples**.
+- Channel allocation in ascending sensor mask order: acceleration XYZ (3), gyroscope XYZ (3), magnetometer XYZ (3), heading (1), pitch (1), roll (1), quaternion (4). The decoded acceleration Y mean was **1.00373 g**, and all quaternions had norms ~1.
+- Chunk response `13 01 C6` establishes 198-byte chunks.
+- **Important:** memory-rate response `14 04 FF FF FF FF` is invalid / uninitialized. Treat nominal rate as unknown from this response. The MATLAB probe was patched to reject it.
+- User-space packet begins `95 66 06 00 00`, signature `1638`, followed by four uint32 little-endian words: `[1, 4351, 8, 1792543664]`.
+- The third user-space word **8** matches frequency index **8 = 20 Hz** in PocketLab Notebook Voyager 2's `M0` frequency table. Nominal duration = 456 / 20 = **22.8 seconds**, last sample nominal t = 22.75 seconds.
+- Fourth word `1792543664` corresponds to **2026-10-21 00:47:44 UTC** (local CDT 2026-10-20 19:47:44), consistent with experiment. It is likely a web-app-supplied record start timestamp; the origin is **unverified**.
+- The Flash samples have **no individually decoded hardware timestamps**. Relative times are reconstructed at 0.05 s increments based on the app's recorded rate index, without proof of instantaneous hardware sample spacing.
+- Standalone offline MATLAB decoder: `pocketlabDecodeMemory.m` (no BLE operations or erase).
+
+Run offline, after pulling the experimental branch:
+```matlab
+S=load('voyager_memory_raw.mat');
+[t,data,meta]=pocketlabDecodeMemory(S.info);
+size(data.acceleration)
+size(data.quaternion)
+meta.NominalFrequencyHz
+meta.UserSpaceTimeUTC
+plot(t,data.acceleration)
+```
+
+**Important caution:** Only the 16-channel `0x0001FFF0` sample mapping was directly verified against this captured .mat file. The decoder can parse other *supported* subsets but those other configurations have not been hardware tested.
+
+## Selective recording and saving (experimental)
+
+The MATLAB prototype now accepts a sensor-group selector on the **recording**
+command. The default (no `Sensors` option) is the previously tested full
+16-channel layout. Only 20 Hz is currently supported.
+
+```matlab
+% After safeguarding/clearing the device's previous recording using app:
+startInfo = pocketlabMemoryStart(20, ...
+    "Sensors",["acceleration","gyroscope"]);
+% Physically move the device; wait the desired duration.
+stopInfo = pocketlabMemoryStop();
+[t,data,info] = pocketlabMemoryDownload("FilePrefix","my_imu_test");
+```
+
+The recording command transmits a bitwise-OR sensor mask from
+`pocketlabSensorRegistry`. Valid sensor groups are `acceleration`,
+`gyroscope`, `magnetometer`, `heading`, `pitch`, `roll`,
+and `quaternion`. Subset recording has **not** yet been verified on the
+device: inspect `info.Decoding.ConfigurationMask`, `info.Decoding.SampleCount`
+and decoded waveforms before relying on a subset. The actual device mask
+is recovered from Flash packets, not inferred from requested sensors.
+
+Optionally filter the **decoded file** after a full-device recording:
+
+```matlab
+[t,data,info] = pocketlabMemoryDownload( ...
+    "Sensors",["acceleration","gyroscope"],"FilePrefix","imu_only");
+```
+
+This second `Sensors` option filters the decoded MAT file only; the raw
+capture file is always retained, and does NOT imply the sensor was disabled
+during recording. Do not repeatedly download needlessly: a repeated
+download was observed to stall after querying the memory chunk size.
+The raw-download driver now includes 5-second progress and a 15-second
+idle timeout to help diagnose this, but repeatability is still unverified.
+
+The start/stop commands were physically verified with device statuses
+`11 01 08` (Recording) and `11 01 01` (Recorded).
+A complete 996-sample, 20 Hz *nominal* (~49.8-second) recording was saved
+and decoded. No per-sample hardware timestamp was verified.
+
+## MATLAB clear command (experimental, destructive)
+
+`pocketlabMemoryClear.m` uses the PocketLab Notebook's observed
+`4C 97` command to delete the **device's** existing recording. It
+never modifies previously downloaded MATLAB files. The command is
+opt-in, refuses to erase while recording, recognizes only the observed
+status bytes (Recorded=`11 01 01`, Empty=`11 01 04`,
+Recording=`11 01 08`), and polls for Empty confirmation.
+
+```matlab
+% Verify prior experiment has been backed up before this step:
+isfile("pocketlab_memory_20261020_205131_raw.mat")
+isfile("pocketlab_memory_20261020_205131_decoded.mat")
+
+% After disconnecting the PocketLab web app:
+clearInfo = pocketlabMemoryClear("ConfirmErase",true);
+assert(clearInfo.EmptyConfirmed, "Memory clear was not confirmed.");
+
+% The next step will test selective logging (unvalidated):
+startInfo = pocketlabMemoryStart(20, ...
+    "Sensors",["acceleration","gyroscope"]);
+```
+
+This MATLAB clear function has **not yet** been tested on hardware.
+If the status does not become Empty, do not assume success and do
+not attempt recording. The operator must explicitly opt in for every
+destructive call; starting/stopping/downloading never auto-clears memory.
+
+## Hardware verification: selected 6-channel recording (October 20, 2026)
+
+- MATLAB `pocketlabMemoryStart(20,"Sensors",["acceleration","gyroscope"])` produced status `11 01 08`; `pocketlabMemoryStop()` produced `11 01 01`.
+- Memory frequency reply `14 04 96 00 03 00` gives nominal 20 Hz; chunk length reply `13 01 4E` gives **78 bytes**.
+- Flash download completed with **27 BLE notifications**: 26 notifications of **234 bytes**, followed by one of **78 bytes**, and one 3-byte completion notification (28 notifications total).
+- Critically, a 234-byte BLE notification concatenates **three 78-byte logical Flash frames**. Each logical frame has a header `96 F0 03 00 00 00`, followed by three 6-channel float32 samples. Frame starts are at offsets 0, 78, and 156 in a 234-byte BLE notification.
+- Logical Flash frame count = **26 × 3 + 1 = 79**; sample count = **79 × 3 = 237**; nominal recording duration = **11.85 seconds**, final sample at **11.80 seconds**.
+- Header mask `0x000003F0` confirms **acceleration XYZ + gyroscope XYZ** only. No extra sensor channels were recorded in these frames.
+- Decoded sample values are all finite; mean acceleration XYZ = approximately [-0.0362, 1.0049, -0.0293] g. Acceleration norm mean is approximately 1.006 g.
+- The user-space metadata returned an erased/uninitialized value (0x95 plus 0xFF). The decoder now falls back to the **valid queried frequency instruction** rather than requiring web-app metadata.
+- `pocketlabDecodeMemory.m` was corrected to split BLE notifications into `ChunkLength`-sized Flash frames and validate every embedded header and mask.
+- `pocketlabMemoryProbe(...).FlashPacketCount` counts *BLE* notifications starting with `0x96`; `pocketlabDecodeMemory(...).meta.FlashPacketCount` counts **logical Flash frames**. `meta.BLEFlashNotificationCount` distinguishes the two.
+
+**Offline regression test using the previously captured raw file (no BLE needed):**
+```matlab
+repo=gitrepo; pull(repo); clear pocketlabDecodeMemory
+S=load("imu_6channel_test_raw.mat");
+[t,data,meta]=pocketlabDecodeMemory(S.info);
+assert(meta.SampleCount==237)
+assert(meta.FlashPacketCount==79)
+assert(meta.BLEFlashNotificationCount==27)
+assert(meta.ConfigurationMask==uint32(hex2dec('000003F0')))
+assert(meta.NominalFrequencyHz==20)
+assert(isequal(sort(string(fieldnames(data))),sort(["acceleration";"gyroscope"])))
+```
+
+This recording demonstrates correct selective logging at nominal 20 Hz. Device clock accuracy and reliability of back-to-back BLE downloads remain separate, unverified issues.
+
+## Broader sensor-selection experiments (not yet hardware tested)
+
+The experimental branch now permits the following additional groups in
+`pocketlabMemoryStart(20,"Sensors",...)`:
+`temperature`, `pressure`, `humidity`, `altitude`, `dewpoint`,
+`heatindex`, `rangefinder`, `uvlight`, `ambientlight`, `irlight`.
+
+`pocketlabDecodeMemory` can recognize their corresponding
+`pocketlabSensorRegistry` configuration bits as single-float32 channels.
+This is a **protocol hypothesis**, not physical validation of the new
+sensor values or sampling cadence. The 20 Hz setting is nominal; slowly
+updated environmental sensors may repeat identical readings.
+
+### First proposed environmental-memory test
+
+1. Verify `imu_6channel_test_raw.mat` exists before erasing the device.
+2. Clear using `pocketlabMemoryClear("ConfirmErase",true)`, verify Empty.
+3. Start: `pocketlabMemoryStart(20,"Sensors",["temperature","pressure","humidity"])`.
+4. After ~10 seconds, stop recording and download once with
+   `pocketlabMemoryDownload("FilePrefix","environment_test_01","MaxDuration_s",45)`.
+5. Inspect `info.Decoding.ConfigurationMask` (expected `0x001C0000`),
+   `fieldnames(data)`, channel ranges, `info.DownloadComplete`, and
+   `info.Decoding.SampleCount`. Expected chunk length with three
+   float32 channels and 3 samples/frame: 42 bytes, if the same memory
+   framing rules apply.
+6. If decoding fails, preserve the `environment_test_01_raw.mat`
+   file for offline inspection; **do not clear/re-record**.
+
+The configuration bits come from the driver sensor registry; conversion
+to physical units for new sensor types is not yet validated. Existing
+six-channel and sixteen-channel IMU recordings should continue to decode
+without change.
+
+## MATLAB GUI: PocketLab Memory App (initial build)
+
+A programmatic `uifigure`-based interface is available in
+`pocketlabMemoryApp.m` (no App Designer project required). The GUI
+delegates BLE work to the existing, tested functions rather than
+reimplementing the BLE protocol.
+
+```matlab
+repo=gitrepo;
+pull(repo);
+clear pocketlabMemoryApp
+pocketlabMemoryApp
+```
+
+**Workflow:** Disconnect PocketLab Notebook in the web browser → Refresh
+Status → select sensor groups or apply a preset → if previously recorded,
+verify a MATLAB backup and select **Clear Device** (separate confirmation)
+→ Start Recording → physically run the experiment → Stop Recording →
+Download & Plot. The downloaded raw and decoded MAT files are saved by
+the existing driver with automatically timestamped filenames when the
+optional file prefix is blank. The plot dropdown displays one selected
+sensor group at a time. **Open MAT File** loads an existing decoded
+`.mat` with `t` and `data`, without Bluetooth connection.
+
+Initial GUI safety behaviors:
+- Unknown device status disables destructive and recording commands
+  until Refresh Status; Clear Device requires a confirmation dialog and
+  `pocketlabMemoryClear("ConfirmErase",true)`.
+- Start is available only for `Empty` status, Stop only for
+  `Recording`, Download only for `Recorded`.
+- The application never clears memory automatically, never erases local
+  saved files, and never silently treats a missing download completion
+  marker as success.
+- Recording continues on hardware after **Start** even if the GUI
+  closes unexpectedly. When its last observed state is Recording, the
+  GUI warns before closing.
+- 20 Hz nominal recording only; hardware sample clock accuracy remains
+  unverified. Some extended environmental/light/rangefinder sensor
+  combinations are still experimental.
+
+**Validation status:** The underlying memory commands and selected
+sensor subsets have been physically tested. **This GUI itself has not
+yet been run in the user's MATLAB session**, so UI layout and callback
+compatibility need one smoke test before use by students.
+
+## Real-Time live plotting + local recording in the same MATLAB GUI
+
+The app `pocketlabMemoryApp` now has a separate **Real-Time Mode**
+panel beside the existing device-internal Memory Mode controls.
+
+- **Start Live + Save** calls the established BLE `pocketlabReadMulti`
+  streamer and plots incoming decoded samples as they arrive, updating
+  at about 4 Hz. The plot displays the most recent 20 s while running.
+- **Stop Live** sets a stop flag, handled by the streamer's optional
+  `ShouldStop` callback; normal return disables sensor streaming,
+  unsubscribes RX, and saves the complete acquisition to
+  `<prefix>_live.mat`. The live max-duration spinner defaults to 30 s
+  as a fallback if the user does not press Stop.
+- **Real-Time and Memory Mode are mutually exclusive.** The GUI disables
+  Memory controls while live streaming; live streaming cannot start when
+  last-confirmed memory status is Recording. When changing from Memory
+  Mode, the GUI requests online BLE mode explicitly using `6C 00`.
+- Live mode currently requires **at least two** selected sensor groups
+  because the established multi-sensor driver takes 2+. Start by
+  selecting **Acceleration + Gyroscope** at nominal 20 Hz; their
+  streaming combination has been previously exercised on hardware.
+  Other combinations remain experimental.
+- New `pocketlabReadMulti` optional arguments (defaults preserve the
+  existing behavior): `OnUpdate=@(t,data)...`,
+  `ShouldStop=@()...`, `UpdateInterval_s=0.25`,
+  `ForceOnline=true/false`.
+- The live plot's x-axis is **nominal sensor sample time** reconstructed
+  from the configured frequency, not BLE packet arrival timestamps.
+  Saving live data to the PC does not imply writing it into PocketLab
+  on-board Flash.
+
+### Initial GUI smoke test (hardware still pending)
+
+```matlab
+repo=gitrepo;
+pull(repo);
+clear pocketlabMemoryApp pocketlabReadMulti
+pocketlabMemoryApp
+```
+
+Disconnect the browser PocketLab app, press **Refresh Status**, keep
+Acceleration + Gyroscope checked, press **Start Live + Save**, move the
+sensor, and press **Stop Live** after ~5 s. Confirm a
+`pocketlab_live_YYYYMMDD_HHMMSS_live.mat` file exists and the graph
+updated *during* the acquisition. If the GUI reports a MATLAB error,
+save the stack trace and do not overwrite successful capture files.
+
+The streaming GUI callback path has not yet been physically exercised
+and needs a user-side smoke test.
+
+## GUI repeated-download issue: status October 20, 2026
+
+The first successful attitude Memory Mode download reported `23 BLE
+notifications (22 Flash), end marker 1`; 330 decoded samples at a
+nominal 20 Hz (42-byte Flash frame). Subsequently, repeated **GUI**
+downloads showed a frequency reply `14 04 FF FF FF FF`, but still
+retrieved `ChunkLength=42`. One GUI attempt reported `266 BLE
+notifications, 24 Flash, end marker 1`, but no `Saved decoded`
+message was observed. Another attempt continued receiving non-data
+notifications past 50 s with only ~23 Flash notifications. It is
+**unconfirmed** whether the completed GUI attempt hit a decoder
+exception or a UI error; the missing completion print suggests an
+error after transport and before decoded MAT save.
+
+Mitigations in the experimental branch:
+- `pocketlabMemoryProbe` now distinguishes all-`FF` padding from
+  useful Flash data in its progress output and applies a default
+  30-second **MaxPaddingWait_s** threshold even if FF traffic continues.
+  It still retains packets and requires the genuine end marker to mark
+  the download complete; timeout does **not** imply complete data.
+- `pocketlabMemoryDownload` prints the preserved raw file path
+  **before** decoding and explicitly reports the raw file when decoding
+  throws.
+- The MATLAB GUI's **Open MAT (raw/decoded)** can now open the raw
+  `*_raw.mat` capture (`info.RawPackets`) and try the decoder
+  **offline**, without restarting the BLE transfer. On success, it
+  plots channels and saves a distinct
+  `*_raw_recovered_decoded.mat` file without overwriting files.
+  Missing end markers are logged as incomplete even if decoding works.
+- GUI download always reports the intended timestamped raw file
+  path in its event log prior to starting transfer.
+- GUI exceptions now log exception function and line as well as error
+  text to help diagnose an unexpected Flash framing problem.
+
+Smoke-test/recovery workflow after the current GUI download has
+finished or timed out:
+
+```matlab
+repo=gitrepo; pull(repo);
+clear pocketlabMemoryApp pocketlabMemoryProbe pocketlabMemoryDownload
+pocketlabMemoryApp
+```
+
+Use **Open MAT (raw/decoded)** to open the most recent raw MAT file
+rather than repeatedly clicking **Download & Plot**. If decoding fails,
+preserve and share that exact `*_raw.mat` file for diagnosis. Do not
+clear device Memory Mode until its capture is safely backed up.
+
+## Verified real-capture decoder fix: trailing FF logical frames (Oct 20, 2026)
+
+Examined the actual `pocketlab_memory_20261020_215556_raw.mat`
+capture independently using SciPy (the capture is **not committed to
+the repo**). The transport got 276 BLE notifications of which 22 began
+with `0x96`, 253 were all-`FF` padding, and one was the three-byte
+`11 01 11` end marker. `ChunkLength=42`, with 210 bytes in each
+flash-containing notification (5 logical frames). Notifications 1–21
+each contain 5 valid `96 00 E0 00 00 00`-headed frames. The 22nd
+notification contains just one such frame followed by **four complete
+42-byte all-FF frames**. The old decoder rejected the first padded
+frame at offset 42.
+
+All 106 valid frames have mask `0x0000E000` (heading, pitch, roll);
+three float32 samples per frame yield **318 structurally valid samples**.
+All 954 decoded float32 values were finite, with physically plausible
+angle ranges. No decoding ambiguity was observed before the padding.
+The ending marker was present. The earlier separately reported
+330-sample capture is **not the same exact sample count**, so these
+captures should be compared before claiming repeat-download sample
+equivalence; the 318-sample result is correct for this uploaded raw
+file only.
+
+The decoder now accepts **only full-length all-0xFF logical frames as
+trailing padding**, counts them as `meta.PaddedLogicalFlashFrameCount`,
+and still rejects malformed partial headers, changed masks, unexpected
+payload lengths, or non-padding frames following the start of padding.
+Synthetic regression test: `tests/testMemoryFlashPadding.m`.
+The user's raw file never needs to be erased/re-downloaded to recover
+those 318 samples.
+
+After pulling the experimental branch, use GUI **Open MAT (raw/decoded)**
+and select the existing `*_raw.mat` to decode and save a separate
+recovered decoded MAT file without Bluetooth.
+
+## GUI Memory Mode elapsed recording clock (Oct 20, 2026)
+
+The GUI now shows two indicators directly under its Memory Mode
+controls:
+
+- **Memory recording: ~MM:SS (PC elapsed)** — updates every ~0.25 seconds
+  via a MATLAB `timer` after a successful GUI **Start Recording**
+  status confirmation, until **Stop Recording** is requested. The frozen
+  interval is displayed as **Last Memory recording: ~MM:SS (PC estimate)**
+  after confirmed Stop.
+- **Downloaded: N samples (~S.S s), complete/INCOMPLETE** — calculated
+  from successfully decoded sample count and *nominal* sampling rate.
+  The GUI still explicitly warns when a download end marker is missing.
+
+**Measurement distinction:** The running timer uses MATLAB's `tic/toc`
+wall-clock interval; it is **not** PocketLab Flash sample timestamps and
+does not query device memory while recording. BLE command/confirmation
+latency, actual sensor update behavior, and differing sample counts
+mean the PC stopwatch and nominal decoded duration may disagree slightly.
+The PC timer does not prove that all samples were stored or downloaded.
+The timer is unavailable for recordings started outside the currently
+open GUI; it then reports **elapsed unknown** rather than inventing a
+duration. A new recording or successful Clear resets the old estimate.
+
+The timer only updates the GUI; no new Bluetooth commands are issued.
+It is stopped/deleted on GUI close to prevent orphaned callbacks.
+The initial build is committed but requires a hardware GUI smoke test.
+
+### Minimal GUI test
+
+```matlab
+repo=gitrepo;
+pull(repo);
+clear pocketlabMemoryApp
+pocketlabMemoryApp
+```
+
+Refresh Status; if an existing recording is present, preserve it and
+only clear after explicitly confirming backups. Select sensors,
+**Start Recording**, watch **Memory recording** count upward,
+**Stop Recording** after roughly 10–15 seconds, then
+**Download & Plot**. Compare the frozen PC elapsed time and decoded
+nominal time; investigate mismatches if completion marker is absent.
