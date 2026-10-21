@@ -177,23 +177,31 @@ updateControls();
 
     function updateControls()
         enabled = ~isBusy;
-        refreshButton.Enable = enabled;
-        openButton.Enable = enabled;
-        clearButton.Enable = enabled && deviceState=="Recorded";
-        startButton.Enable = enabled && deviceState=="Empty";
-        stopButton.Enable = enabled && deviceState=="Recording";
-        downloadButton.Enable = enabled && deviceState=="Recorded";
-        filePrefix.Enable = enabled;
-        timeoutSpinner.Enable = enabled;
+        refreshButton.Enable = switchState(enabled);
+        openButton.Enable = switchState(enabled);
+        clearButton.Enable = switchState(enabled && deviceState=="Recorded");
+        startButton.Enable = switchState(enabled && deviceState=="Empty");
+        stopButton.Enable = switchState(enabled && deviceState=="Recording");
+        downloadButton.Enable = switchState(enabled && deviceState=="Recorded");
+        filePrefix.Enable = switchState(enabled);
+        timeoutSpinner.Enable = switchState(enabled);
         for j=1:numel(sensorBoxes)
-            sensorBoxes{j}.Enable = enabled && deviceState~="Recording";
+            sensorBoxes{j}.Enable = switchState(enabled && deviceState~="Recording");
         end
         buttons = {imuPreset,envPreset,lightPreset,attitudePreset,allPreset};
         for j=1:numel(buttons)
-            buttons{j}.Enable = enabled && deviceState~="Recording";
+            buttons{j}.Enable = switchState(enabled && deviceState~="Recording");
         end
         stateLabel.Text = char("Device: "+deviceState);
         drawnow limitrate;
+    end
+
+    function mode = switchState(value)
+        if value
+            mode = 'on';
+        else
+            mode = 'off';
+        end
     end
 
     function setPreset(names)
