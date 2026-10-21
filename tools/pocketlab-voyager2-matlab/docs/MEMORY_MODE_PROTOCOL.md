@@ -199,3 +199,36 @@ assert(isequal(sort(string(fieldnames(data))),sort(["acceleration";"gyroscope"])
 ```
 
 This recording demonstrates correct selective logging at nominal 20 Hz. Device clock accuracy and reliability of back-to-back BLE downloads remain separate, unverified issues.
+
+## Broader sensor-selection experiments (not yet hardware tested)
+
+The experimental branch now permits the following additional groups in
+`pocketlabMemoryStart(20,"Sensors",...)`:
+`temperature`, `pressure`, `humidity`, `altitude`, `dewpoint`,
+`heatindex`, `rangefinder`, `uvlight`, `ambientlight`, `irlight`.
+
+`pocketlabDecodeMemory` can recognize their corresponding
+`pocketlabSensorRegistry` configuration bits as single-float32 channels.
+This is a **protocol hypothesis**, not physical validation of the new
+sensor values or sampling cadence. The 20 Hz setting is nominal; slowly
+updated environmental sensors may repeat identical readings.
+
+### First proposed environmental-memory test
+
+1. Verify `imu_6channel_test_raw.mat` exists before erasing the device.
+2. Clear using `pocketlabMemoryClear("ConfirmErase",true)`, verify Empty.
+3. Start: `pocketlabMemoryStart(20,"Sensors",["temperature","pressure","humidity"])`.
+4. After ~10 seconds, stop recording and download once with
+   `pocketlabMemoryDownload("FilePrefix","environment_test_01","MaxDuration_s",45)`.
+5. Inspect `info.Decoding.ConfigurationMask` (expected `0x001C0000`),
+   `fieldnames(data)`, channel ranges, `info.DownloadComplete`, and
+   `info.Decoding.SampleCount`. Expected chunk length with three
+   float32 channels and 3 samples/frame: 42 bytes, if the same memory
+   framing rules apply.
+6. If decoding fails, preserve the `environment_test_01_raw.mat`
+   file for offline inspection; **do not clear/re-record**.
+
+The configuration bits come from the driver sensor registry; conversion
+to physical units for new sensor types is not yet validated. Existing
+six-channel and sixteen-channel IMU recordings should continue to decode
+without change.
