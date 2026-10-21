@@ -16,9 +16,13 @@ pocketlabPair
 pocketlabMemoryApp
 ```
 
-Choose **your own** PocketLab during pairing. It saves a *local* `pocketlab_pairing.mat` file; this file is intentionally not committed to Git.
+Choose **your own** PocketLab during pairing. **Pair only once on each computer for that device.** The saved `pocketlab_pairing.mat` file is reused automatically in later MATLAB sessions and is intentionally not committed to Git.
+
+**Before each session:** turn on the PocketLab Voyager 2, then run `startup` and `pocketlabMemoryApp`. **Do not run `pocketlabPair` again each time.** Re-pair only if using a different device, if the saved pairing was lost, or if reconnection fails.
 
 **Later sessions / updating the existing checkout**
+
+Turn on the PocketLab's power first. Pairing is already saved on this computer, so skip `pocketlabPair`.
 
 ```matlab
 repo = gitrepo;
@@ -29,7 +33,7 @@ pocketlabMemoryApp
 
 These update commands assume your current repository branch is `main`. `startup` adds the driver folder to the MATLAB path; it does **not** connect to Bluetooth, erase device memory, or automatically launch the GUI. To check the battery without opening the GUI, run `pocketlabBattery`.
 
-> **Bluetooth:** Disconnect the PocketLab Notebook browser application (and any other application using the device) before connecting with MATLAB. Pair again with `pocketlabPair` if the saved device cannot be reached.
+> **Bluetooth:** Turn on the PocketLab before acquisition and disconnect the PocketLab Notebook browser application (and any other application using the device) before connecting with MATLAB. `startup` only configures the MATLAB path; the GUI connects when requested. If the saved device cannot reconnect despite being powered on and available, run `pocketlabPair` again.
 
 ## PocketLab GUI: two acquisition modes
 
