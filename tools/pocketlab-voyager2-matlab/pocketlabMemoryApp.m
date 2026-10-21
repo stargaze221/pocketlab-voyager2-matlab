@@ -38,6 +38,7 @@ deviceState = "Unknown";
 isBusy = false;
 liveRunning = false;
 liveStopRequested = false;
+liveSingleSensorName = "";  % only populated for a single-sensor Live run
 livePlotClock = tic;
 memoryStartTick = [];           % tic token: only starts after GUI START confirmation
 memoryElapsedStopped_s = NaN;   % estimated PC interval; no device timestamp
@@ -199,7 +200,7 @@ liveDurationLabel = uilabel(liveGrid,'Text','Max duration (s):', ...
 liveDurationSpinner = uispinner(liveGrid,'Limits',[5 600], ...
     'Step',5,'Value',30);
 liveHelpLabel = uilabel(liveGrid, ...
-    'Text','Starts online BLE streaming; Memory recording cannot run at the same time.', ...
+    'Text','Select one or more sensors; device Memory recording cannot run simultaneously.', ...
     'FontAngle','italic');
 
 bottom = uigridlayout(main,[1 2]);
@@ -544,9 +545,8 @@ updateControls();
 
                 case "liveStart"
                     selected = selectedSensors();
-                    if numel(selected)<2
-                        error(['Real-Time mode currently requires at least two ' ...
-                            'sensor groups (e.g. Acceleration + Gyroscope).']);
+                    if isempty(selected)
+                        error('Select at least one sensor for Real-Time mode.');
                     end
                     if deviceState=="Recording"
                         error('Stop device Memory Mode before streaming live.');
@@ -561,6 +561,10 @@ updateControls();
                     end
                     liveRunning = true;
                     liveStopRequested = false;
+                    liveSingleSensorName = "";
+                    if numel(selected)==1
+                        liveSingleSensorName = selected(1);
+                    end
                     livePlotClock = tic;
                     lastTime = [];
                     lastData = struct();
@@ -572,13 +576,28 @@ updateControls();
                     updateControls();
                     addLog("Starting LIVE stream: "+strjoin(selected,", ")+ ...
                         " | 20 Hz nominal | max "+liveDurationSpinner.Value+" s");
-                    [lastTime,lastData,lastDownloadInfo] = pocketlabReadMulti( ...
-                        selected,liveDurationSpinner.Value,20, ...
-                        "Quiet",true,"ForceOnline",true, ...
-                        "SaveFile",liveFile, ...
-                        "OnUpdate",@onLiveUpdate, ...
-                        "ShouldStop",@shouldStopLive, ...
-                        "UpdateInterval_s",0.25);
+                    if numel(selected)==1
+                        % Use the established single-sensor decoder for
+                        % single-channel GUI acquisition. It returns Y as
+                        % a matrix; put it in the GUI's struct convention.
+                        [lastTime,singleY,lastDownloadInfo] = pocketlabRead( ...
+                            selected(1),liveDurationSpinner.Value,20, ...
+                            "Quiet",true,"ForceOnline",true, ...
+                            "SaveFile",liveFile, ...
+                            "OnUpdate",@onLiveSingleUpdate, ...
+                            "ShouldStop",@shouldStopLive, ...
+                            "UpdateInterval_s",0.25);
+                        lastData = struct();
+                        lastData.(char(selected(1))) = singleY;
+                    else
+                        [lastTime,lastData,lastDownloadInfo] = pocketlabReadMulti( ...
+                            selected,liveDurationSpinner.Value,20, ...
+                            "Quiet",true,"ForceOnline",true, ...
+                            "SaveFile",liveFile, ...
+                            "OnUpdate",@onLiveUpdate, ...
+                            "ShouldStop",@shouldStopLive, ...
+                            "UpdateInterval_s",0.25);
+                    end
                     liveRunning = false;
                     updatePlotChoices();
                     addLog("LIVE saved: "+string(liveFile)+ ...
@@ -592,7 +611,7 @@ updateControls();
                     if lastDownloadInfo.SampleCount==0
                         uialert(fig, ...
                             ['No sample blocks were decoded from live BLE packets. ' ...
-                             'Try Acceleration + Gyroscope at 20 Hz.'], ...
+                             'Confirm pairing, sensor selection, and 20 Hz settings.'], ...
                             'No decoded data','Icon','warning');
                     end
 
@@ -694,6 +713,14 @@ updateControls();
         % @()liveStopRequested captured the initial false value when the
         % stream started, so Stop Live could not terminate the loop.
         shouldStop = liveStopRequested;
+    end
+
+    function onLiveSingleUpdate(tNow,YNow)
+        % Adapt the established one-sensor numerical output to the same
+        % plot data struct used by multi-sensor live acquisition.
+        dataNow = struct();
+        dataNow.(char(liveSingleSensorName)) = YNow;
+        onLiveUpdate(tNow,dataNow);
     end
 
     function onLiveUpdate(tNow,dataNow)

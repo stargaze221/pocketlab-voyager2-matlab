@@ -52,7 +52,7 @@ pocketlabMemoryApp
 
 ### Real-Time Mode
 
-1. Click **Refresh Status** and select at least two sensor groups. The Acceleration + Gyroscope pairing at nominal 20 Hz is the most thoroughly checked multi-sensor combination.
+1. Click **Refresh Status** and select **one or more** sensor groups. Single-sensor streaming uses the existing `pocketlabRead` decoder; with two or more sensors the GUI uses `pocketlabReadMulti`. Acceleration at nominal 20 Hz is the best-validated single-sensor option; Acceleration + Gyroscope is the best-validated multi-sensor combination.
 2. Set **Max duration (s)**, then click **Start Live + Save**.
 3. Move the device and observe the plot. Click **Stop Live** to end early, or wait for the maximum duration. The GUI saves a `*_live.mat` file and reports whether Stop Live was detected.
 
