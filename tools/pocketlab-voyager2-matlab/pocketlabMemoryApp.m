@@ -102,9 +102,9 @@ for k=1:numel(groups)
     sensorBoxes{k} = cb;
 end
 
-presets = uigridlayout(main,[1 6]);
+presets = uigridlayout(main,[1 5]);
 presets.Layout.Row = 3;
-presets.ColumnWidth = {'1x','1x','1x','1x','1x','2x'};
+presets.ColumnWidth = {'1x','1x','1x','1x','3x'};
 presets.Padding = [0 0 0 0];
 presets.ColumnSpacing = 8;
 
@@ -120,12 +120,10 @@ lightPreset = uibutton(presets,'push','Text','Light', ...
 attitudePreset = uibutton(presets,'push','Text','Attitude', ...
     'ButtonPushedFcn',@(~,~)setPreset( ...
     ["roll","pitch","heading","quaternion"]));
-allPreset = uibutton(presets,'push','Text','All', ...
-    'ButtonPushedFcn',@(~,~)setPreset(groups));
 noteLabel = uilabel(presets, ...
-    'Text','Nominal 20 Hz · Other sensor combinations are experimental', ...
+    'Text','Select only needed sensors · Nominal 20 Hz', ...
     'FontAngle','italic');
-noteLabel.Layout.Column = 6;
+noteLabel.Layout.Column = 5;
 
 controls = uipanel(main,'Title','Device control and acquisition');
 controls.Layout.Row = 4;
@@ -261,7 +259,7 @@ updateControls();
         for j=1:numel(sensorBoxes)
             sensorBoxes{j}.Enable = switchState(enabled && deviceState~="Recording");
         end
-        buttons = {imuPreset,envPreset,lightPreset,attitudePreset,allPreset};
+        buttons = {imuPreset,envPreset,lightPreset,attitudePreset};
         for j=1:numel(buttons)
             buttons{j}.Enable = switchState(enabled && deviceState~="Recording");
         end
