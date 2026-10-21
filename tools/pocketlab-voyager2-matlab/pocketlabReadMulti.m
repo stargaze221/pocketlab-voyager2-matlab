@@ -136,8 +136,25 @@ pause(0.10);
 write(tx,freqCommand,"withresponse");
 pause(0.10);
 
+% Text progress indicator, throttled to approximately once per second.
+progressLastSecond=-1;
+if ~quiet
+    fprintf('Recording: [%s] %3d%% | %d / %g s',repmat('-',1,20),0,0,recordTime);
+end
 startClock=tic;
 while toc(startClock)<recordTime
+    if ~quiet
+        elapsedProgress=min(recordTime,toc(startClock));
+        progressSecond=floor(elapsedProgress);
+        if progressSecond>progressLastSecond
+            progressLastSecond=progressSecond;
+            fraction=elapsedProgress/recordTime;
+            filled=min(20,floor(20*fraction));
+            fprintf('\\rRecording: [%s%s] %3.0f%% | %.0f / %g s', ...
+                repmat('#',1,filled),repmat('-',1,20-filled), ...
+                floor(100*fraction),floor(elapsedProgress),recordTime);
+        end
+    end
     try
         [packet,packetTimestamp]=read(rx);
         raw=uint8(packet(:).');
@@ -174,6 +191,9 @@ while toc(startClock)<recordTime
     end
 end
 elapsed_s=toc(startClock);
+if ~quiet
+    fprintf('\\rRecording: [%s] 100%% | %g / %g s\\n',repmat('#',1,20),recordTime,recordTime);
+end
 clear cleanupObj  % Disables all enabled sensors and unsubscribes.
 
 nSamples=size(data.(char(sensorNames(1))),1);
