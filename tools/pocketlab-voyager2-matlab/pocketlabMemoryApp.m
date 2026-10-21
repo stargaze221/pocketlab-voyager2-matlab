@@ -1,11 +1,14 @@
 function fig = pocketlabMemoryApp()
-%POCKETLABMEMORYAPP Graphical interface for Voyager 2 internal Memory Mode.
+%POCKETLABMEMORYAPP GUI for Voyager 2 Memory Mode and PC live streaming.
 %
 %   pocketlabMemoryApp
 %
 %   All hardware commands are delegated to pocketlabMemoryProbe,
 %   pocketlabMemoryClear, pocketlabMemoryStart, pocketlabMemoryStop, and
 %   pocketlabMemoryDownload. The GUI does not issue raw BLE writes.
+%
+%   Live streaming and device Memory Mode are ALTERNATIVE modes. The GUI
+%   never tries to stream while hardware Memory recording is active.
 %
 %   Memory Mode tested at nominal 20 Hz. Sensor groups beyond the tested
 %   configurations remain experimental. Download always saves full raw
@@ -29,6 +32,9 @@ labels = ["Acceleration (XYZ)","Gyroscope (XYZ)", ...
 
 deviceState = "Unknown";
 isBusy = false;
+liveRunning = false;
+liveStopRequested = false;
+livePlotClock = tic;
 lastTime = [];
 lastData = struct();
 lastDownloadInfo = struct();
@@ -36,12 +42,12 @@ logLines = ["PocketLab Voyager 2 — Memory Mode"; ...
     "Disconnect the browser app before using Bluetooth."; ...
     "Press Refresh Status first. Recording rate: nominal 20 Hz."];
 
-fig = uifigure('Name','PocketLab Voyager 2 | Memory Mode', ...
-    'Position',[100 100 1090 750], ...
+fig = uifigure('Name','PocketLab Voyager 2 | Memory + Real-Time', ...
+    'Position',[100 80 1090 830], ...
     'CloseRequestFcn',@onCloseWindow);
 
-main = uigridlayout(fig,[5 1]);
-main.RowHeight = {50,210,38,112,'1x'};
+main = uigridlayout(fig,[6 1]);
+main.RowHeight = {50,210,38,112,86,'1x'};
 main.ColumnWidth = {'1x'};
 main.Padding = [14 12 14 12];
 main.RowSpacing = 9;
@@ -51,7 +57,7 @@ header.Layout.Row = 1;
 header.ColumnWidth = {'1x','1x'};
 header.Padding = [0 0 0 0];
 
-titleLabel = uilabel(header,'Text','PocketLab Voyager 2 — Memory Mode', ...
+titleLabel = uilabel(header,'Text','PocketLab Voyager 2 — Memory + Live', ...
     'FontSize',19,'FontWeight','bold');
 titleLabel.Layout.Column = 1;
 
@@ -59,7 +65,7 @@ stateLabel = uilabel(header,'Text','Device: Unknown | Press Refresh Status', ...
     'FontSize',13,'HorizontalAlignment','right');
 stateLabel.Layout.Column = 2;
 
-sensorPanel = uipanel(main,'Title','Select sensors to RECORD on the device');
+sensorPanel = uipanel(main,'Title','Select sensors (Memory Mode or Real-Time streaming)');
 sensorPanel.Layout.Row = 2;
 sensorGrid = uigridlayout(sensorPanel,[5 4]);
 sensorGrid.RowHeight = {'1x','1x','1x','1x','1x'};
@@ -143,8 +149,29 @@ timeoutSpinner = uispinner(controlsGrid,'Limits',[10 600], ...
 timeoutSpinner.Layout.Row = 2;
 timeoutSpinner.Layout.Column = 6;
 
+liveControls = uipanel(main,'Title', ...
+    'Real-Time Mode — stream, plot live, and save to PC (not device Flash)');
+liveControls.Layout.Row = 5;
+liveGrid = uigridlayout(liveControls,[1 5]);
+liveGrid.RowHeight = {35};
+liveGrid.ColumnWidth = {'1.2x','1.2x','1x','0.8x','3x'};
+liveGrid.Padding = [9 8 9 4];
+liveGrid.ColumnSpacing = 9;
+
+liveStartButton = uibutton(liveGrid,'push','Text','Start Live + Save', ...
+    'ButtonPushedFcn',@(~,~)performAction("liveStart"));
+liveStopButton = uibutton(liveGrid,'push','Text','Stop Live', ...
+    'ButtonPushedFcn',@(~,~)performAction("liveStop"));
+liveDurationLabel = uilabel(liveGrid,'Text','Max duration (s):', ...
+    'HorizontalAlignment','right');
+liveDurationSpinner = uispinner(liveGrid,'Limits',[5 600], ...
+    'Step',5,'Value',30);
+liveHelpLabel = uilabel(liveGrid, ...
+    'Text','Starts online BLE streaming; Memory recording cannot run at the same time.', ...
+    'FontAngle','italic');
+
 bottom = uigridlayout(main,[1 2]);
-bottom.Layout.Row = 5;
+bottom.Layout.Row = 6;
 bottom.ColumnWidth = {'2.5x','1x'};
 bottom.RowHeight = {'1x'};
 bottom.Padding = [0 0 0 0];
@@ -177,6 +204,10 @@ updateControls();
 
     function updateControls()
         enabled = ~isBusy;
+        liveStartButton.Enable = switchState(enabled && ...
+            any(deviceState==["Empty","Recorded"]));
+        liveStopButton.Enable = switchState(liveRunning && ~liveStopRequested);
+        liveDurationSpinner.Enable = switchState(enabled);
         refreshButton.Enable = switchState(enabled);
         openButton.Enable = switchState(enabled);
         clearButton.Enable = switchState(enabled && deviceState=="Recorded");
@@ -192,7 +223,11 @@ updateControls();
         for j=1:numel(buttons)
             buttons{j}.Enable = switchState(enabled && deviceState~="Recording");
         end
-        stateLabel.Text = char("Device: "+deviceState);
+        if liveRunning
+            stateLabel.Text = char("LIVE streaming — "+deviceState+" Flash");
+        else
+            stateLabel.Text = char("Device: "+deviceState);
+        end
         drawnow limitrate;
     end
 
@@ -230,6 +265,16 @@ updateControls();
     end
 
     function performAction(action)
+        % The streaming loop calls drawnow, allowing this button callback
+        % to request a graceful stop while Start Live remains active.
+        if action=="liveStop"
+            if liveRunning
+                liveStopRequested = true;
+                liveStopButton.Enable = 'off';
+                addLog("Stop Live requested — finishing BLE stream and saving file");
+            end
+            return
+        end
         if isBusy, return; end
 
         if action=="clear"
@@ -317,6 +362,54 @@ updateControls();
                             'Incomplete download','Icon','warning');
                     end
 
+                case "liveStart"
+                    selected = selectedSensors();
+                    if numel(selected)<2
+                        error(['Real-Time mode currently requires at least two ' ...
+                            'sensor groups (e.g. Acceleration + Gyroscope).']);
+                    end
+                    if deviceState=="Recording"
+                        error('Stop device Memory Mode before streaming live.');
+                    end
+                    prefix = strtrim(string(filePrefix.Value));
+                    if strlength(prefix)==0
+                        prefix = "pocketlab_live_"+string(datestr(now,'yyyymmdd_HHMMSS'));
+                    end
+                    liveFile = char(prefix+"_live.mat");
+                    if isfile(liveFile)
+                        error('Live output file already exists: %s',liveFile);
+                    end
+                    liveRunning = true;
+                    liveStopRequested = false;
+                    livePlotClock = tic;
+                    lastTime = [];
+                    lastData = struct();
+                    lastDownloadInfo = struct();
+                    plotSelect.Items = {'No data'};
+                    plotSelect.Value = 'No data';
+                    plotSelect.Enable = 'off';
+                    cla(plotAxes);
+                    updateControls();
+                    addLog("Starting LIVE stream: "+strjoin(selected,", ")+ ...
+                        " | 20 Hz nominal | max "+liveDurationSpinner.Value+" s");
+                    [lastTime,lastData,lastDownloadInfo] = pocketlabReadMulti( ...
+                        selected,liveDurationSpinner.Value,20, ...
+                        "Quiet",true,"ForceOnline",true, ...
+                        "SaveFile",liveFile, ...
+                        "OnUpdate",@onLiveUpdate, ...
+                        "ShouldStop",@()liveStopRequested, ...
+                        "UpdateInterval_s",0.25);
+                    liveRunning = false;
+                    updatePlotChoices();
+                    addLog("LIVE saved: "+string(liveFile)+ ...
+                        " | "+numel(lastTime)+" samples");
+                    if lastDownloadInfo.SampleCount==0
+                        uialert(fig, ...
+                            ['No sample blocks were decoded from live BLE packets. ' ...
+                             'Try Acceleration + Gyroscope at 20 Hz.'], ...
+                            'No decoded data','Icon','warning');
+                    end
+
                 case "open"
                     [file,folder] = uigetfile('*.mat','Open decoded PocketLab MAT file');
                     if isequal(file,0)
@@ -342,6 +435,12 @@ updateControls();
         catch ME
             addLog("ERROR: "+string(ME.message));
             uialert(fig,ME.message,'PocketLab Memory Mode error','Icon','error');
+            if action=="liveStart"
+                liveRunning = false;
+                liveStopRequested = false;
+                deviceState = "Unknown";
+                addLog("Live-stream error: refresh device status before continuing.");
+            end
             if any(action==["start","stop","clear"])
                 deviceState = "Unknown";
                 addLog("Refresh device status before another command.");
@@ -349,6 +448,31 @@ updateControls();
         end
         isBusy = false;
         updateControls();
+    end
+
+    function onLiveUpdate(tNow,dataNow)
+        % Display only — the streaming driver owns the actual buffers and
+        % saves the full acquisition after normal completion/Stop Live.
+        lastTime = tNow;
+        lastData = dataNow;
+        if toc(livePlotClock)<0.25
+            return
+        end
+        livePlotClock = tic;
+        fields = fieldnames(lastData);
+        if ~isempty(fields) && ...
+                (numel(plotSelect.Items)~=numel(fields) || ...
+                 ~isequal(string(plotSelect.Items(:)),string(fields(:))))
+            plotSelect.Items = fields;
+            plotSelect.Value = fields{1};
+            plotSelect.Enable = 'on';
+        end
+        if ~isempty(fields)
+            plotCurrent();
+            stateLabel.Text = char("LIVE: "+numel(tNow)+ ...
+                " samples · nominal 20 Hz");
+        end
+        drawnow limitrate;
     end
 
     function updatePlotChoices()
@@ -374,7 +498,12 @@ updateControls();
         cla(plotAxes);
 
         if numel(lastTime)==size(values,1) && all(isfinite(lastTime))
-            plot(plotAxes,lastTime,values,'LineWidth',1.1);
+            if liveRunning && ~isempty(lastTime)
+                keep = lastTime >= lastTime(end)-20;
+                plot(plotAxes,lastTime(keep),values(keep,:),'LineWidth',1.1);
+            else
+                plot(plotAxes,lastTime,values,'LineWidth',1.1);
+            end
             xlabel(plotAxes,'Nominal Time (s)');
         else
             plot(plotAxes,values,'LineWidth',1.1);
@@ -396,6 +525,12 @@ updateControls();
         if isBusy
             uialert(fig,'Wait for the current operation to finish, then close.', ...
                 'PocketLab is busy','Icon','warning');
+            return
+        end
+        if liveRunning
+            uialert(fig, ...
+                'Stop Live first so the streaming data can be saved.', ...
+                'Live streaming in progress','Icon','warning');
             return
         end
         if deviceState=="Recording"
