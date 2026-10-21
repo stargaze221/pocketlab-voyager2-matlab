@@ -542,12 +542,18 @@ updateControls();
                         "Quiet",true,"ForceOnline",true, ...
                         "SaveFile",liveFile, ...
                         "OnUpdate",@onLiveUpdate, ...
-                        "ShouldStop",@()liveStopRequested, ...
+                        "ShouldStop",@shouldStopLive, ...
                         "UpdateInterval_s",0.25);
                     liveRunning = false;
                     updatePlotChoices();
                     addLog("LIVE saved: "+string(liveFile)+ ...
                         " | "+numel(lastTime)+" samples");
+                    if isfield(lastDownloadInfo,'StoppedByUser') && ...
+                            lastDownloadInfo.StoppedByUser
+                        addLog("LIVE stopped by Stop Live button.");
+                    else
+                        addLog("LIVE reached max duration (or stop not observed).");
+                    end
                     if lastDownloadInfo.SampleCount==0
                         uialert(fig, ...
                             ['No sample blocks were decoded from live BLE packets. ' ...
@@ -641,6 +647,13 @@ updateControls();
         end
         isBusy = false;
         updateControls();
+    end
+
+    function shouldStop = shouldStopLive()
+        % A nested function reads the CURRENT shared GUI state.
+        % @()liveStopRequested captured the initial false value when the
+        % stream started, so Stop Live could not terminate the loop.
+        shouldStop = liveStopRequested;
     end
 
     function onLiveUpdate(tNow,dataNow)
