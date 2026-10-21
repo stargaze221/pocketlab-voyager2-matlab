@@ -143,3 +143,31 @@ The start/stop commands were physically verified with device statuses
 `11 01 08` (Recording) and `11 01 01` (Recorded).
 A complete 996-sample, 20 Hz *nominal* (~49.8-second) recording was saved
 and decoded. No per-sample hardware timestamp was verified.
+
+## MATLAB clear command (experimental, destructive)
+
+`pocketlabMemoryClear.m` uses the PocketLab Notebook's observed
+`4C 97` command to delete the **device's** existing recording. It
+never modifies previously downloaded MATLAB files. The command is
+opt-in, refuses to erase while recording, recognizes only the observed
+status bytes (Recorded=`11 01 01`, Empty=`11 01 04`,
+Recording=`11 01 08`), and polls for Empty confirmation.
+
+```matlab
+% Verify prior experiment has been backed up before this step:
+isfile("pocketlab_memory_20261020_205131_raw.mat")
+isfile("pocketlab_memory_20261020_205131_decoded.mat")
+
+% After disconnecting the PocketLab web app:
+clearInfo = pocketlabMemoryClear("ConfirmErase",true);
+assert(clearInfo.EmptyConfirmed, "Memory clear was not confirmed.");
+
+% The next step will test selective logging (unvalidated):
+startInfo = pocketlabMemoryStart(20, ...
+    "Sensors",["acceleration","gyroscope"]);
+```
+
+This MATLAB clear function has **not yet** been tested on hardware.
+If the status does not become Empty, do not assume success and do
+not attempt recording. The operator must explicitly opt in for every
+destructive call; starting/stopping/downloading never auto-clears memory.
