@@ -17,7 +17,10 @@ function [t,data,meta] = pocketlabDecodeMemory(info,varargin)
 %
 %   Each BLE notification may contain multiple packed Flash frames;
 %   splitting uses the measured MemoryChunkResponse/ChunkLength.
-%   Unsupported/ambiguous frames cause an error; no guessing.
+%   Fully 0xFF logical flash frames are padding. They may appear at the
+%   end of a 210-byte BLE notification when fewer than five 42-byte
+%   logical frames remain. Only complete all-FF frames are skipped;
+%   malformed or partially padded frames are errors.
 
 validateattributes(info,{'struct'},{'scalar'},mfilename,'info');
 if ~isfield(info,'RawPackets') || ~iscell(info.RawPackets)
@@ -53,6 +56,8 @@ samplesPerPacket=[];
 flashCount=0;           % Logical flash frames, not BLE notifications.
 flashNotifications=0;   % One BLE notification can contain 3 flash frames.
 emptyCount=0;
+paddedLogicalFrames=0;
+paddingStarted=false;
 
 % RX notifications may pack multiple logical flash frames. On the
 % experimentally verified 6-channel profile, ChunkLength=78, but most RX
@@ -89,6 +94,20 @@ for k=1:numel(info.RawPackets)
 
     for startIndex=1:frameBytes:numel(raw)
         frame=raw(startIndex:startIndex+frameBytes-1);
+        % Confirmed from a real 20 Hz roll/pitch/heading capture:
+        % final 210-byte notification contained one 42-byte 0x96 frame,
+        % followed by four 42-byte blocks of 0xFF padding. Previously
+        % these triggered an invalid-header error despite a valid end marker.
+        if all(frame==uint8(255))
+            paddedLogicalFrames=paddedLogicalFrames+1;
+            paddingStarted=true;
+            continue
+        end
+        % Do not silently tolerate gaps inside a purported data stream.
+        if paddingStarted
+            error(['Non-padding flash frame after FF padding at BLE ' ...
+                'packet %d, offset %d.'],k,startIndex-1);
+        end
         if numel(frame)<6 || frame(1)~=uint8(150) || frame(6)~=0
             error('Invalid flash header at BLE packet %d, offset %d.', ...
                 k,startIndex-1);
@@ -208,6 +227,7 @@ meta.FlashPacketCount=flashCount;
 meta.BLEFlashNotificationCount=flashNotifications;
 meta.PackedFlashFramesDetected=flashCount>flashNotifications;
 meta.FlashPaddingPacketCount=emptyCount;
+meta.PaddedLogicalFlashFrameCount=paddedLogicalFrames;
 meta.SamplesPerFlashPacket=unique(samplesPerPacket).';
 meta.ConfigurationMask=expectedMask;
 meta.ChannelNames=labelNames(1:0);
