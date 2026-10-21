@@ -37,6 +37,8 @@ These update commands assume your current repository branch is `main`. `startup`
 
 ## PocketLab GUI: two acquisition modes
 
+The GUI header includes a **Check Battery** button. It reads the paired Voyager 2 battery level on demand and shows **Battery: XX%** without starting a recording. The displayed percentage is the last reading, not continuous monitoring. Battery checks are disabled while live streaming, device Memory Mode recording, or a download/other device operation is in progress.
+
 Run:
 
 ```matlab
