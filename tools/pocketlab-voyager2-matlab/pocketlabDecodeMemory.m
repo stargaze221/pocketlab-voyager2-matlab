@@ -30,10 +30,18 @@ addParameter(parser,'FrequencyHz',NaN, ...
 parse(parser,varargin{:});
 rateOverride=double(parser.Results.FrequencyHz);
 
+% Sort groups by their configuration bit positions, matching the
+% observed float32 ordering in device Flash frames.
+% Environmental/light/rangefinder memory formats are newly added and
+% remain hardware-unverified; unknown masks still cause hard errors.
 names={'acceleration','gyroscope','magnetometer', ...
-    'heading','pitch','roll','quaternion'};
-masks=uint32([112 896 7168 8192 16384 32768 65536]);
-widths=[3 3 3 1 1 1 4];
+    'heading','pitch','roll','quaternion', ...
+    'temperature','pressure','humidity','altitude','dewpoint', ...
+    'heatindex','rangefinder','uvlight','ambientlight','irlight'};
+masks=uint32([112 896 7168 8192 16384 32768 65536 ...
+    262144 524288 1048576 2097152 4194304 8388608 ...
+    16777216 33554432 67108864 134217728]);
+widths=[3 3 3 1 1 1 4 1 1 1 1 1 1 1 1 1 1];
 labelNames={'acc_x','acc_y','acc_z','gyro_x','gyro_y','gyro_z', ...
     'mag_x','mag_y','mag_z','heading','pitch','roll', ...
     'q1','q2','q3','q4'};
@@ -203,6 +211,7 @@ meta.FlashPaddingPacketCount=emptyCount;
 meta.SamplesPerFlashPacket=unique(samplesPerPacket).';
 meta.ConfigurationMask=expectedMask;
 meta.ChannelNames=labelNames(1:0);
+meta.EnvironmentalMemoryMappingVerified=false;
 for j=selected
     switch names{j}
         case {'acceleration','gyroscope','magnetometer'}
