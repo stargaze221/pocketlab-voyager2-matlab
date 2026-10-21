@@ -17,6 +17,11 @@ function [t,Y,info] = pocketlabRead(sensorName,recordTime,Fs,varargin)
 %   "ExternalMode"  External sensor only:
 %                   "voltage","resistance","current","temperature"
 %   "SuppressExperimentalWarning"  true/false
+%   "SaveFile"    optional .mat path containing t, data, info for the GUI
+%   "OnUpdate"    optional callback @(t,Y) for live GUI plots
+%   "ShouldStop"  optional callback @() logical for early stopping
+%   "UpdateInterval_s"  callback throttle, default 0.25 seconds
+%   "ForceOnline"  request online BLE mode before streaming (default false)
 %
 % IMPORTANT
 %   Acceleration has been physically validated.
@@ -24,8 +29,8 @@ function [t,Y,info] = pocketlabRead(sensorName,recordTime,Fs,varargin)
 %   configuration but their packet decoding and engineering units have not
 %   yet been physically validated in this MATLAB driver.
 %
-% This version intentionally reads ONE sensor at a time. That keeps packet
-% parsing simple and is appropriate for classroom experiments.
+% This function reads ONE sensor at a time. Optional GUI callbacks do
+% not change the original three-output command-line acquisition API.
 
 validateattributes(recordTime, {'numeric'}, ...
     {'scalar','real','positive','finite'}, mfilename, 'recordTime');
@@ -39,6 +44,12 @@ addParameter(p,'Units',"native",@(x)ischar(x) || isstring(x));
 addParameter(p,'ExternalMode',"voltage",@(x)ischar(x) || isstring(x));
 addParameter(p,'SuppressExperimentalWarning',false, ...
     @(x)islogical(x) || isnumeric(x));
+addParameter(p,'SaveFile',"",@(x)ischar(x)||isstring(x));
+addParameter(p,'OnUpdate',[],@(x)isempty(x)||isa(x,'function_handle'));
+addParameter(p,'ShouldStop',[],@(x)isempty(x)||isa(x,'function_handle'));
+addParameter(p,'UpdateInterval_s',0.25, ...
+    @(x)isnumeric(x)&&isscalar(x)&&isfinite(x)&&x>=0.1);
+addParameter(p,'ForceOnline',false,@(x)islogical(x)&&isscalar(x));
 parse(p,varargin{:});
 
 address = string(p.Results.Address);
@@ -46,6 +57,11 @@ quiet = logical(p.Results.Quiet);
 unitsRequested = string(p.Results.Units);
 externalMode = lower(string(p.Results.ExternalMode));
 suppressWarning = logical(p.Results.SuppressExperimentalWarning);
+saveFile = string(p.Results.SaveFile);
+onUpdate = p.Results.OnUpdate;
+shouldStop = p.Results.ShouldStop;
+updateInterval_s = p.Results.UpdateInterval_s;
+forceOnline = p.Results.ForceOnline;
 
 sensorKey = localNormalizeSensorName(sensorName);
 registry = pocketlabSensorRegistry();
@@ -114,6 +130,13 @@ pause(0.15);
 
 cleanupObj = onCleanup(@() localCleanup(tx,rx));
 
+% The GUI may previously have used device Memory Mode (offline BLE).
+% This command is opt-in so ordinary single-sensor CLI use is unchanged.
+if forceOnline
+    write(tx,uint8([108 0]),"withresponse"); % 6C 00
+    pause(0.10);
+end
+
 % Start polling.
 write(tx,uint8([hex2dec('60') hex2dec('01')]),"withresponse");
 pause(0.10);
@@ -154,8 +177,22 @@ rawPackets = cell(0,1);
 invalidPackets = 0;
 
 startClock = tic;
+lastUpdateClock = tic;
+lastUICheckClock = tic;
+stopRequested = false;
 
 while toc(startClock) < recordTime
+    % Let MATLAB dispatch the Stop Live button while acquisition runs.
+    if ~isempty(shouldStop)
+        if toc(lastUICheckClock) >= 0.10
+            drawnow;
+            lastUICheckClock = tic;
+        end
+        if logical(shouldStop())
+            stopRequested = true;
+            break
+        end
+    end
     try
         [packet,packetTimestamp] = read(rx);
         raw = uint8(packet);
@@ -183,6 +220,19 @@ while toc(startClock) < recordTime
                     values = values(1:expectedValues);
                     block = reshape(values,sensor.NumChannels,[]).';
                     Yraw = [Yraw; block]; %#ok<AGROW>
+                    if ~isempty(onUpdate) && ...
+                            toc(lastUpdateClock)>=updateInterval_s
+                        count = size(Yraw,1);
+                        try
+                            onUpdate((0:count-1)'/Fs,double(Yraw));
+                        catch displayError
+                            warning('PocketLab:LiveDisplayError', ...
+                                ['Single-sensor display callback failed: %s. ' ...
+                                 'Recording continues.'],displayError.message);
+                            onUpdate = [];
+                        end
+                        lastUpdateClock = tic;
+                    end
                 else
                     invalidPackets = invalidPackets + 1;
                 end
@@ -203,6 +253,20 @@ while toc(startClock) < recordTime
         else
             rethrow(ME);
         end
+    end
+end
+
+elapsed_s = toc(startClock);
+% Publish the final buffered samples, including an early stop. UI
+% callback failures must not destroy already collected measurements.
+if ~isempty(onUpdate)
+    count = size(Yraw,1);
+    try
+        onUpdate((0:count-1)'/Fs,double(Yraw));
+    catch displayError
+        warning('PocketLab:LiveDisplayError', ...
+            'Final single-sensor plot failed: %s. Capture can still be saved.', ...
+            displayError.message);
     end
 end
 
@@ -240,6 +304,10 @@ info.Unit = unitOut;
 info.Validated = sensor.Validated;
 info.SampleRate_Hz = Fs;
 info.RequestedTime_s = recordTime;
+info.AcquisitionElapsed_s = elapsed_s;
+info.StoppedByUser = stopRequested;
+info.SampleCount = N;
+info.SaveFile = saveFile;
 info.SamplesReceived = N;
 info.PacketCount = numel(packetBytes);
 info.PacketBytes = packetBytes;
@@ -254,6 +322,14 @@ else
 end
 
 info.SampleRecoveryFraction = N/(recordTime*Fs);
+
+if strlength(saveFile)>0
+    % Use the same t/data/info layout as multi-sensor GUI captures.
+    % Also retain Y for users of the original single-sensor API.
+    data = struct();
+    data.(sensorKey) = Y;
+    save(char(saveFile),'t','data','info','Y');
+end
 
 if ~quiet
     fprintf('Done.\n');
