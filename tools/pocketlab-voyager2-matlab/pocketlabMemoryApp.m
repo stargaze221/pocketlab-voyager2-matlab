@@ -14,6 +14,9 @@ function fig = pocketlabMemoryApp()
 %   configurations remain experimental. Download always saves full raw
 %   capture and decoded MAT files (with automatic timestamped names).
 %   No sample-wise hardware timestamps have been verified.
+%   The on-screen Memory stopwatch measures MATLAB PC elapsed time from
+%   confirmed Start until Stop request. It is NOT a device clock or a
+%   continuous query of how much Flash has actually been written.
 %
 %   IMPORTANT: Disconnect the PocketLab Notebook browser application
 %   before using this GUI. Device memory clear is DESTRUCTIVE and requires
@@ -35,6 +38,9 @@ isBusy = false;
 liveRunning = false;
 liveStopRequested = false;
 livePlotClock = tic;
+memoryStartTick = [];           % tic token: only starts after GUI START confirmation
+memoryElapsedStopped_s = NaN;   % estimated PC interval; no device timestamp
+memoryTimer = [];               % MATLAB UI-only timer; never polls BLE
 lastTime = [];
 lastData = struct();
 lastDownloadInfo = struct();
@@ -43,11 +49,11 @@ logLines = ["PocketLab Voyager 2 — Memory Mode"; ...
     "Press Refresh Status first. Recording rate: nominal 20 Hz."];
 
 fig = uifigure('Name','PocketLab Voyager 2 | Memory + Real-Time', ...
-    'Position',[100 80 1090 830], ...
+    'Position',[100 65 1090 865], ...
     'CloseRequestFcn',@onCloseWindow);
 
 main = uigridlayout(fig,[6 1]);
-main.RowHeight = {50,210,38,112,86,'1x'};
+main.RowHeight = {50,210,38,145,86,'1x'};
 main.ColumnWidth = {'1x'};
 main.Padding = [14 12 14 12];
 main.RowSpacing = 9;
@@ -110,8 +116,8 @@ noteLabel.Layout.Column = 6;
 
 controls = uipanel(main,'Title','Device control and acquisition');
 controls.Layout.Row = 4;
-controlsGrid = uigridlayout(controls,[2 6]);
-controlsGrid.RowHeight = {34,30};
+controlsGrid = uigridlayout(controls,[3 6]);
+controlsGrid.RowHeight = {34,30,28};
 controlsGrid.ColumnWidth = {'1x','1x','1x','1x','1x','1x'};
 controlsGrid.Padding = [9 9 9 5];
 controlsGrid.RowSpacing = 6;
@@ -148,6 +154,20 @@ timeoutSpinner = uispinner(controlsGrid,'Limits',[10 600], ...
     'Step',5,'Value',90);
 timeoutSpinner.Layout.Row = 2;
 timeoutSpinner.Layout.Column = 6;
+
+memoryElapsedLabel = uilabel(controlsGrid, ...
+    'Text','Memory elapsed: --:-- (starts after GUI Start)', ...
+    'FontSize',12,'FontWeight','bold', ...
+    'Tooltip','Approximate MATLAB PC stopwatch, not the PocketLab device clock');
+memoryElapsedLabel.Layout.Row = 3;
+memoryElapsedLabel.Layout.Column = [1 3];
+
+downloadedLabel = uilabel(controlsGrid, ...
+    'Text','Last download: none', ...
+    'FontSize',12, ...
+    'Tooltip','Nominal duration from number of decoded samples / 20 Hz');
+downloadedLabel.Layout.Row = 3;
+downloadedLabel.Layout.Column = [4 6];
 
 liveControls = uipanel(main,'Title', ...
     'Real-Time Mode — stream, plot live, and save to PC (not device Flash)');
@@ -200,6 +220,11 @@ plotSelect.Layout.Row = 2;
 logArea = uitextarea(right,'Value',cellstr(logLines),'Editable','off');
 logArea.Layout.Row = 3;
 
+% UI timer runs without BLE calls. Updating a label is lightweight and
+% independent of the measured sample count or Bluetooth packet timing.
+memoryTimer = timer('ExecutionMode','fixedSpacing', ...
+    'Period',0.25,'BusyMode','drop', ...
+    'TimerFcn',@(~,~)updateMemoryElapsed());
 updateControls();
 
     function updateControls()
@@ -223,12 +248,89 @@ updateControls();
         for j=1:numel(buttons)
             buttons{j}.Enable = switchState(enabled && deviceState~="Recording");
         end
+        updateMemoryElapsed();
         if liveRunning
             stateLabel.Text = char("LIVE streaming — "+deviceState+" Flash");
         else
             stateLabel.Text = char("Device: "+deviceState);
         end
         drawnow limitrate;
+    end
+
+    function updateMemoryElapsed()
+        if ~isvalid(fig)
+            return
+        end
+        if deviceState=="Recording"
+            if ~isempty(memoryStartTick)
+                memoryElapsedLabel.Text = char( ...
+                    "Memory recording: ~"+formatClock(toc(memoryStartTick))+ ...
+                    " (PC elapsed)");
+            else
+                memoryElapsedLabel.Text = ...
+                    'Memory recording: elapsed unknown (started outside GUI)';
+            end
+        elseif isfinite(memoryElapsedStopped_s)
+            memoryElapsedLabel.Text = char( ...
+                "Last Memory recording: ~"+ ...
+                formatClock(memoryElapsedStopped_s)+" (PC estimate)");
+        else
+            memoryElapsedLabel.Text = ...
+                'Memory elapsed: --:-- (starts after GUI Start)';
+        end
+    end
+
+    function clock = formatClock(totalSeconds)
+        seconds = max(0,floor(double(totalSeconds)));
+        hours = floor(seconds/3600);
+        minutes = floor(mod(seconds,3600)/60);
+        seconds = mod(seconds,60);
+        if hours>0
+            clock = string(sprintf('%d:%02d:%02d',hours,minutes,seconds));
+        else
+            clock = string(sprintf('%02d:%02d',minutes,seconds));
+        end
+    end
+
+    function stopMemoryTimer()
+        if ~isempty(memoryTimer) && isvalid(memoryTimer) && ...
+                strcmp(memoryTimer.Running,'on')
+            stop(memoryTimer);
+        end
+    end
+
+    function startMemoryTimer()
+        if ~isempty(memoryTimer) && isvalid(memoryTimer)
+            try
+                if strcmp(memoryTimer.Running,'off')
+                    start(memoryTimer);
+                end
+            catch ME
+                % Timer failure must not be interpreted as recording failure.
+                addLog("Timer refresh unavailable: "+string(ME.message));
+            end
+        end
+    end
+
+    function showDownloadedDuration(tSamples,info,source)
+        nominalLength = numel(tSamples)/20; % GUI driver records at nominal 20 Hz
+        if isfield(info,'Decoding') && ...
+                isfield(info.Decoding,'NominalFrequencyHz') && ...
+                isfinite(info.Decoding.NominalFrequencyHz) && ...
+                info.Decoding.NominalFrequencyHz>0
+            nominalLength = numel(tSamples)/info.Decoding.NominalFrequencyHz;
+        end
+        status = "unknown completion";
+        if isfield(info,'DownloadComplete')
+            if info.DownloadComplete
+                status = "complete";
+            else
+                status = "INCOMPLETE";
+            end
+        end
+        downloadedLabel.Text = char(source+": "+ ...
+            numel(tSamples)+" samples (~"+ ...
+            string(sprintf('%.1f',nominalLength))+" s), "+status);
     end
 
     function mode = switchState(value)
@@ -297,13 +399,29 @@ updateControls();
             switch action
                 case "refresh"
                     r = pocketlabMemoryProbe("status");
-                    deviceState = string(r.MemoryState);
+                    newState = string(r.MemoryState);
+                    if deviceState=="Recording" && newState~="Recording"
+                        % If the recording ended outside the GUI, its
+                        % actual stop time is unknown. Do not fabricate it.
+                        memoryStartTick = [];
+                        memoryElapsedStopped_s = NaN;
+                        stopMemoryTimer();
+                        addLog("Recording state changed; elapsed duration unknown.");
+                    end
+                    deviceState = newState;
+                    if deviceState=="Recording" && ~isempty(memoryStartTick)
+                        startMemoryTimer();
+                    end
                     addLog("Status: "+deviceState);
 
                 case "clear"
                     r = pocketlabMemoryClear("ConfirmErase",true);
                     if r.EmptyConfirmed
                         deviceState = "Empty";
+                        memoryStartTick = [];
+                        memoryElapsedStopped_s = NaN;
+                        stopMemoryTimer();
+                        downloadedLabel.Text = 'Last download: none';
                         addLog("Device flash is Empty (confirmed)");
                     else
                         deviceState = "Unknown";
@@ -320,19 +438,40 @@ updateControls();
                     r = pocketlabMemoryStart(20,"Sensors",selected);
                     if r.StartConfirmed
                         deviceState = "Recording";
-                        addLog("Recording on the device. Press Stop when ready.");
+                        memoryStartTick = tic;
+                        memoryElapsedStopped_s = NaN;
+                        downloadedLabel.Text = 'Last download: none for this recording';
+                        updateMemoryElapsed();
+                        startMemoryTimer();
+                        addLog("Recording confirmed. MATLAB elapsed timer started.");
                     else
                         deviceState = "Unknown";
                         addLog("Start sent but recording state is unconfirmed.");
                     end
 
                 case "stop"
+                    % Capture the PC stopwatch immediately when Stop is
+                    % requested; BLE acknowledgement may arrive later.
+                    elapsedAtStopRequest_s = NaN;
+                    if ~isempty(memoryStartTick)
+                        elapsedAtStopRequest_s = toc(memoryStartTick);
+                    end
                     r = pocketlabMemoryStop();
+                    stopMemoryTimer();
                     if r.StopConfirmed
                         deviceState = "Recorded";
-                        addLog("Recording stopped. Ready to download.");
+                        memoryElapsedStopped_s = elapsedAtStopRequest_s;
+                        memoryStartTick = [];
+                        if isfinite(memoryElapsedStopped_s)
+                            addLog("Memory stopped. PC elapsed estimate: "+ ...
+                                string(sprintf('%.1f',memoryElapsedStopped_s))+" s");
+                        else
+                            addLog("Memory stopped. Duration unknown (started outside this GUI).");
+                        end
                     else
                         deviceState = "Unknown";
+                        memoryStartTick = [];
+                        memoryElapsedStopped_s = NaN;
                         addLog("Stop not confirmed. Refresh Status.");
                     end
 
@@ -348,6 +487,13 @@ updateControls();
                         "FilePrefix",prefix, ...
                         "MaxDuration_s",timeoutSpinner.Value);
                     updatePlotChoices();
+                    showDownloadedDuration(lastTime,lastDownloadInfo,"Downloaded");
+                    if isfinite(memoryElapsedStopped_s)
+                        addLog("PC recording elapsed ~"+ ...
+                            string(sprintf('%.1f',memoryElapsedStopped_s))+ ...
+                            " s; recovered samples at nominal 20 Hz: "+ ...
+                            string(sprintf('%.1f',numel(lastTime)/20))+" s");
+                    end
                     if lastDownloadInfo.DownloadComplete
                         addLog("Download complete: "+numel(lastTime)+ ...
                             " samples; decoded file: "+ ...
@@ -466,6 +612,7 @@ updateControls();
                                 '(t,data) or a raw file (info.RawPackets).']);
                         end
                         updatePlotChoices();
+                        showDownloadedDuration(lastTime,lastDownloadInfo,"Opened");
                         addLog("Viewing "+numel(lastTime)+" samples");
                     end
             end
@@ -485,6 +632,9 @@ updateControls();
                 addLog("Live-stream error: refresh device status before continuing.");
             end
             if any(action==["start","stop","clear"])
+                stopMemoryTimer();
+                memoryStartTick = [];
+                memoryElapsedStopped_s = NaN;
                 deviceState = "Unknown";
                 addLog("Refresh device status before another command.");
             end
@@ -584,6 +734,12 @@ updateControls();
                 'Options',{'Stay Open','Close GUI'}, ...
                 'DefaultOption',1,'CancelOption',1,'Icon','warning');
             if ~strcmp(answer,'Close GUI'), return; end
+        end
+        % Deleting the timer prevents orphan MATLAB callbacks after the
+        % GUI window closes, including close while device is recording.
+        stopMemoryTimer();
+        if ~isempty(memoryTimer) && isvalid(memoryTimer)
+            delete(memoryTimer);
         end
         delete(fig);
     end
