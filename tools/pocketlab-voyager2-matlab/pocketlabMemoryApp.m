@@ -127,7 +127,7 @@ stopButton = uibutton(controlsGrid,'push','Text','Stop Recording', ...
     'ButtonPushedFcn',@(~,~)performAction("stop"));
 downloadButton = uibutton(controlsGrid,'push','Text','Download & Plot', ...
     'ButtonPushedFcn',@(~,~)performAction("download"));
-openButton = uibutton(controlsGrid,'push','Text','Open MAT File', ...
+openButton = uibutton(controlsGrid,'push','Text','Open MAT (raw/decoded)', ...
     'ButtonPushedFcn',@(~,~)performAction("open"));
 
 prefixLabel = uilabel(controlsGrid,'Text','File prefix (optional):');
@@ -339,15 +339,14 @@ updateControls();
                 case "download"
                     prefix = strtrim(string(filePrefix.Value));
                     if strlength(prefix)==0
-                        [lastTime,lastData,lastDownloadInfo] = ...
-                            pocketlabMemoryDownload( ...
-                            "MaxDuration_s",timeoutSpinner.Value);
-                    else
-                        [lastTime,lastData,lastDownloadInfo] = ...
-                            pocketlabMemoryDownload( ...
-                            "FilePrefix",prefix, ...
-                            "MaxDuration_s",timeoutSpinner.Value);
+                        prefix = "pocketlab_memory_"+ ...
+                            string(datestr(now,'yyyymmdd_HHMMSS'));
                     end
+                    addLog("Downloading; raw backup target: "+prefix+"_raw.mat");
+                    [lastTime,lastData,lastDownloadInfo] = ...
+                        pocketlabMemoryDownload( ...
+                        "FilePrefix",prefix, ...
+                        "MaxDuration_s",timeoutSpinner.Value);
                     updatePlotChoices();
                     if lastDownloadInfo.DownloadComplete
                         addLog("Download complete: "+numel(lastTime)+ ...
@@ -411,30 +410,74 @@ updateControls();
                     end
 
                 case "open"
-                    [file,folder] = uigetfile('*.mat','Open decoded PocketLab MAT file');
+                    [file,folder] = uigetfile('*.mat', ...
+                        'Open decoded MAT or raw Memory Mode capture');
                     if isequal(file,0)
                         addLog("Open file cancelled");
                     else
-                        S = load(fullfile(folder,file));
-                        if ~isfield(S,'t') || ~isfield(S,'data') || ...
-                                ~isstruct(S.data)
-                            error('Select a decoded MAT file containing t and data.');
-                        end
-                        lastTime = S.t;
-                        lastData = S.data;
-                        if isfield(S,'info')
-                            lastDownloadInfo = S.info;
+                        fullName = fullfile(folder,file);
+                        S = load(fullName);
+                        if isfield(S,'t') && isfield(S,'data') && ...
+                                isstruct(S.data)
+                            % Previously saved decoded capture.
+                            lastTime = S.t;
+                            lastData = S.data;
+                            if isfield(S,'info')
+                                lastDownloadInfo = S.info;
+                            else
+                                lastDownloadInfo = struct();
+                            end
+                            addLog("Opened decoded file: "+string(file));
+                        elseif isfield(S,'info') && isstruct(S.info) && ...
+                                isfield(S.info,'RawPackets')
+                            % Re-decode OFFLINE when the BLE transfer
+                            % succeeded but automatic decoding failed.
+                            rawCapture = S.info;
+                            [lastTime,lastData,decodedMeta] = ...
+                                pocketlabDecodeMemory(rawCapture, ...
+                                "FrequencyHz",20);
+                            isComplete = false;
+                            if isfield(rawCapture,'EndMarkerSeen')
+                                isComplete=logical(rawCapture.EndMarkerSeen);
+                            end
+                            lastDownloadInfo=struct( ...
+                                'RawCapture',rawCapture, ...
+                                'Decoding',decodedMeta, ...
+                                'DownloadComplete',isComplete, ...
+                                'RecoveryFromRaw',true, ...
+                                'RawFile',string(fullName));
+                            [~,stem,~]=fileparts(file);
+                            recoveredFile=fullfile(folder, ...
+                                [stem '_recovered_decoded.mat']);
+                            if isfile(recoveredFile)
+                                recoveredFile=fullfile(folder, ...
+                                    [stem '_' datestr(now,'yyyymmdd_HHMMSS') ...
+                                     '_recovered_decoded.mat']);
+                            end
+                            t=lastTime; data=lastData; info=lastDownloadInfo; %#ok<NASGU>
+                            save(recoveredFile,'t','data','info');
+                            addLog("Decoded RAW offline: "+numel(t)+ ...
+                                " samples. Saved: "+string(recoveredFile));
+                            if ~isComplete
+                                addLog("WARNING: raw download did not contain end marker.");
+                            end
                         else
-                            lastDownloadInfo = struct();
+                            error(['Unsupported MAT file. Open a decoded file ' ...
+                                '(t,data) or a raw file (info.RawPackets).']);
                         end
                         updatePlotChoices();
-                        addLog("Opened "+string(file)+ ...
-                            " ("+numel(lastTime)+" samples)");
+                        addLog("Viewing "+numel(lastTime)+" samples");
                     end
             end
         catch ME
-            addLog("ERROR: "+string(ME.message));
-            uialert(fig,ME.message,'PocketLab Memory Mode error','Icon','error');
+            diagnostic = string(ME.message);
+            if ~isempty(ME.stack)
+                diagnostic = diagnostic+" ("+string(ME.stack(1).name)+ ...
+                    " line "+string(ME.stack(1).line)+")";
+            end
+            addLog("ERROR: "+diagnostic);
+            uialert(fig,char(diagnostic), ...
+                'PocketLab Memory Mode error','Icon','error');
             if action=="liveStart"
                 liveRunning = false;
                 liveStopRequested = false;
